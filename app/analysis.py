@@ -765,10 +765,41 @@ def method_notes() -> list[dict]:
     ]
 
 
-def _empty_report(sample: bool) -> dict:
+RANGE_KEYS = ("today", "7", "30", "90", "all")
+RANGE_DAYS = {"today": 1, "7": 7, "30": 30, "90": 90, "all": None}
+RANGE_LABELS = {
+    "today": "今天",
+    "7": "近 7 天",
+    "30": "近 30 天",
+    "90": "近 90 天",
+    "all": "全部",
+}
+
+
+def normalize_range_key(value) -> str:
+    raw = str(value or "90").strip().lower()
+    if raw in {"1", "day", "today"}:
+        return "today"
+    if raw in RANGE_KEYS:
+        return raw
+    return "90"
+
+
+def available_ranges(history_days: int) -> list[dict]:
+    keys = ["today", "7", "30", "90"]
+    if history_days > 90:
+        keys.append("all")
+    return [{"key": key, "label": RANGE_LABELS[key], "days": RANGE_DAYS[key]} for key in keys]
+
+
+def _empty_report(sample: bool, range_key: str = "90") -> dict:
+    key = normalize_range_key(range_key)
     return {
         "sample": sample,
         "generated_at": iso_sh(),
+        "range": key,
+        "range_label": RANGE_LABELS[key],
+        "available_ranges": available_ranges(0),
         "window": None,
         "summary": {
             "ctl": None,
@@ -831,6 +862,10 @@ def _empty_report(sample: bool) -> dict:
         },
         "methods": method_notes(),
     }
+
+
+def _slice_series(values: list, start_idx: int) -> list:
+    return list(values[start_idx:])
 
 
 def _dedupe_activities(activities: list) -> list[dict]:
@@ -941,8 +976,9 @@ def _hr_rest_for(day: dict, profile: dict, fallback: float | None) -> float | No
     return fallback
 
 
-def analyze(bundle: dict) -> dict:
+def analyze(bundle: dict, range_key: str | None = "90") -> dict:
     sample = bool(bundle.get("sample"))
+    range_key = normalize_range_key(range_key)
     profile = bundle.get("profile") if isinstance(bundle.get("profile"), dict) else {}
     activities = _dedupe_activities(bundle.get("activities") or [])
     day_map = _merge_days(bundle.get("days") or [])
@@ -952,7 +988,7 @@ def analyze(bundle: dict) -> dict:
         if stamp is not None:
             stamps.add(stamp)
     if not stamps:
-        return _empty_report(sample)
+        return _empty_report(sample, range_key)
     ordered = _daterange(min(stamps), max(stamps))
     by_day: dict[date, list[dict]] = {stamp: [] for stamp in ordered}
     for activity in activities:
@@ -1017,11 +1053,28 @@ def analyze(bundle: dict) -> dict:
     share_total = sum(method_counts.values()) or 1
     shares = {key: round(value / share_total, 2) for key, value in method_counts.items()}
 
+    end = ordered[-1]
+    span = RANGE_DAYS[range_key]
+    if span is None:
+        start_idx = 0
+        view_start = ordered[0]
+    else:
+        start_idx = max(0, len(ordered) - span)
+        view_start = ordered[start_idx]
+    view_dates = ordered[start_idx:]
+    view_loads = loads[start_idx:]
+
+    view_activities = []
+    for activity in activities:
+        stamp = _parse_date(activity.get("date"))
+        if stamp is not None and view_start <= stamp <= end:
+            view_activities.append(activity)
+
     minutes = {"low": 0.0, "mid": 0.0, "high": 0.0}
     how_used = set()
     classified_seconds = 0.0
     all_seconds = 0.0
-    for activity in activities:
+    for activity in view_activities:
         all_seconds += max(0.0, _float(activity.get("duration_s")) or 0.0)
         bucket, how = _classify(activity, hr_max)
         if bucket is None or how is None:
@@ -1049,7 +1102,8 @@ def analyze(bundle: dict) -> dict:
     else:
         intensity = None
 
-    end = ordered[-1]
+    range_hours, range_km = _window_hours(activities, view_start, end)
+    # Keep a fixed 7-day comparison strip ending at the same end date.
     week_start = end - timedelta(days=6)
     prev_end = week_start - timedelta(days=1)
     prev_start = prev_end - timedelta(days=6)
@@ -1061,6 +1115,7 @@ def analyze(bundle: dict) -> dict:
     acute = _mean(loads[-7:]) if len(loads) >= 7 else None
     chronic = _mean(loads[-28:]) if len(loads) >= 28 else None
     weekly_load = sum(loads[-7:]) if len(loads) >= 7 else None
+    range_load = sum(view_loads) if view_loads else None
 
     summary = {
         "ctl": _round(pmc["ctl"][-1], 1),
@@ -1070,9 +1125,13 @@ def analyze(bundle: dict) -> dict:
         "acute_load": _round(acute, 1),
         "chronic_load": _round(chronic, 1),
         "history_days": len(ordered),
+        "range_days": len(view_dates),
         "load_method": load_method,
         "load_method_label": METHOD_LABELS[load_method],
         "load_method_shares": shares,
+        "range_hours": _round(range_hours, 1),
+        "range_km": _round(range_km, 1),
+        "range_load": _round(range_load, 1),
         "weekly_hours": _round(weekly_hours, 1),
         "previous_weekly_hours": _round(previous_hours, 1),
         "weekly_km": _round(weekly_km, 1),
@@ -1108,7 +1167,8 @@ def analyze(bundle: dict) -> dict:
             "这是示例数据，不是佳明账号里的记录。数字里故意放了一次负荷升高、静息心率上移和几晚睡眠偏短，用来把警报画出来。"
         )
     notes.append(
-        f"CTL/ATL 从这 {len(ordered)} 天的第一天以 0 起步。更早的训练没有包括在内，开头几周的 CTL 会偏低。"
+        f"CTL/ATL 从全部 {len(ordered)} 天历史的第一天以 0 起步，图表按所选时间范围截取。"
+        "更早的训练没有包括在内，开头几周的 CTL 会偏低。"
     )
     notes.append(f"负荷口径：{METHOD_LABELS[load_method]}。")
     if load_method == "mixed":
@@ -1117,28 +1177,40 @@ def analyze(bundle: dict) -> dict:
     if hr_source and intensity and intensity["method"] in {"hr", "mixed"}:
         notes.append(f"强度分区用的最大心率是 {fmt_num(hr_max)}（{hr_source}）。")
     if all_seconds > 0 and classified_seconds / all_seconds < 0.5:
-        notes.append("有一半以上的训练时长没有心率，也没有有氧训练效果，没有进入强度分布。")
+        notes.append("所选范围内有一半以上的训练时长没有心率，也没有有氧训练效果，没有进入强度分布。")
     if hrv["stale"]:
         notes.append("最近几天没有 HRV，基线比较没有更新。")
 
     def series_round(values, digits=2):
-        return [None if value is None else round(float(value), digits) for value in values]
+        return [None if value is None else round(float(value), digits) for value in _slice_series(values, start_idx)]
 
     return {
         "sample": sample,
         "generated_at": iso_sh(),
-        "window": {"start": ordered[0].isoformat(), "end": ordered[-1].isoformat(), "days": len(ordered)},
+        "range": range_key,
+        "range_label": RANGE_LABELS[range_key],
+        "available_ranges": available_ranges(len(ordered)),
+        "window": {
+            "start": view_start.isoformat(),
+            "end": end.isoformat(),
+            "days": len(view_dates),
+            "history_days": len(ordered),
+            "history_start": ordered[0].isoformat(),
+        },
         "summary": summary,
         "flags": flags,
         "suggestions": _suggestions(summary, flag_ids),
         "notes": notes,
         "series": {
-            "dates": [stamp.isoformat() for stamp in ordered],
+            "dates": [stamp.isoformat() for stamp in view_dates],
             "load": series_round(loads, 2),
             "ctl": series_round(pmc["ctl"], 2),
             "atl": series_round(pmc["atl"], 2),
             "tsb": series_round(pmc["tsb"], 2),
-            "acwr": [None if value is None else round(value, 3) for value in ratios],
+            "acwr": [
+                None if value is None else round(value, 3)
+                for value in _slice_series(ratios, start_idx)
+            ],
             "rhr": series_round(rhr_series, 1),
             "hrv": series_round(hrv_series, 1),
             "hrv_low": series_round(hrv_low_series, 1),
@@ -1146,7 +1218,7 @@ def analyze(bundle: dict) -> dict:
             "sleep_hours": series_round(sleep_series, 2),
             "body_battery": series_round(battery_series, 1),
             "stress": series_round(stress_series, 1),
-            "weeks": _weeks(ordered, activities),
+            "weeks": _weeks(view_dates, view_activities),
         },
         "methods": method_notes(),
     }

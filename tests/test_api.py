@@ -46,11 +46,15 @@ def test_report_and_home_render_sample_without_calling_the_model(client, monkeyp
     assert "本地建议" in page.text
     assert "Personal API" in page.text
     assert "邮箱或手机号" not in page.text
-    assert "中国区账号" not in page.text
     assert "验证码" not in page.text
     assert 'name="email"' not in page.text
     assert 'id="password"' not in page.text
     assert 'id="personal-api-key"' in page.text
+    assert 'id="tab-data"' in page.text
+    assert 'id="tab-settings"' in page.text
+    assert 'id="range-bar"' in page.text
+    assert "训练负荷" in page.text
+    assert "恢复" in page.text
 
 
 def test_personal_api_key_stays_in_the_secret_file_only(client):
@@ -181,3 +185,14 @@ def test_status_has_no_mfa_or_password_fields(client):
     assert "email" not in user
     assert "password" not in user
     assert "personal_api_key" not in user
+
+
+def test_report_range_query_changes_window(client):
+    full = client.get("/api/report?range=all").json()
+    week = client.get("/api/report?range=7").json()
+    assert full["range"] == "all"
+    assert week["range"] == "7"
+    assert len(week["series"]["dates"]) <= 7
+    assert week["summary"]["range_days"] == len(week["series"]["dates"])
+    assert "domains" in week
+    assert any(item["id"] == "load" for item in week["domains"])

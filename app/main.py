@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from app import garmin_sync, storage
-from app.analysis import analyze
+from app.analysis import analyze, normalize_range_key
 from app.clock import iso_sh
 from app.coach import coaching_for, offline_coaching
-from app.preview import render_report_html
+from app.preview import metric_domains, render_report_html
 from app.sample_data import build_sample_bundle
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "index.html"
@@ -64,9 +64,10 @@ def _status(view: dict | None = None) -> dict:
     }
 
 
-def _report_for(view: dict) -> dict:
-    report = analyze(view["bundle"])
+def _report_for(view: dict, range_key: str | None = "90") -> dict:
+    report = analyze(view["bundle"], range_key=range_key)
     report["viewing"] = view["viewing"]
+    report["domains"] = metric_domains(report.get("summary") or {}, report.get("range_label"))
     if view["user"]:
         report["active_user_label"] = view["user"].get("display_name") or view["user"].get("label")
     else:
@@ -101,9 +102,9 @@ def _plotly_js_path() -> str:
     return ""
 
 
-def _page() -> str:
+def _page(range_key: str = "90") -> str:
     view = _view()
-    report = _report_for(view)
+    report = _report_for(view, range_key=range_key)
     sample = bool(view["bundle"].get("sample"))
     api_key = "" if sample else storage.get_api_key()
     fetch_coach = (not sample) and bool(api_key)
@@ -117,9 +118,13 @@ def _page() -> str:
     status = _status(view)
     boot = {
         "fetch_coach": fetch_coach,
+        "report": report,
         "series": report["series"],
         "intensity": (report.get("summary") or {}).get("intensity"),
         "status": status,
+        "synced_at": view["bundle"].get("fetched_at"),
+        "warnings": view["bundle"].get("warnings") or [],
+        "coach": coach,
     }
     blob = json.dumps(boot, ensure_ascii=False).replace("<", "\\u003c")
     html = TEMPLATE.read_text(encoding="utf-8")
@@ -129,8 +134,9 @@ def _page() -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    return HTMLResponse(_page(), headers={"Cache-Control": "no-store"})
+def index(request: Request):
+    range_key = normalize_range_key(request.query_params.get("range"))
+    return HTMLResponse(_page(range_key), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/favicon.ico")
@@ -192,10 +198,11 @@ def save_deepseek(body: dict):
 
 
 @app.get("/api/report")
-def report():
+def report(request: Request):
     """Deterministic report. This route never calls Garmin or DeepSeek."""
     view = _view()
-    payload = _report_for(view)
+    range_key = normalize_range_key(request.query_params.get("range"))
+    payload = _report_for(view, range_key=range_key)
     sample = bool(view["bundle"].get("sample"))
     payload["coaching"] = offline_coaching(sample, None if sample else storage.get_api_key(), pending=False)
     payload["sync_warnings"] = view["bundle"].get("warnings") or []

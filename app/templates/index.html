@@ -2,140 +2,271 @@
 <html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
   <title>佳明体能健康分析</title>
   <style>
     :root {
-      --paper: #ebe4d6;
-      --card: #f7f4ee;
-      --ink: #1c1915;
-      --muted: #5e584e;
-      --line: #d5cfc3;
-      --spruce: #145c52;
-      --rust: #9c3d2e;
-      --navy: #1d4e89;
-      --gold: #8a5a12;
+      --bg0: #d7e4ec;
+      --bg1: #e9eef2;
+      --surface: #f5f8fa;
+      --ink: #132029;
+      --muted: #5b6b76;
+      --line: #c4d0d8;
+      --accent: #0b6b63;
+      --accent-ink: #f3faf8;
+      --alert: #a93a2c;
+      --warn: #8f6414;
+      --info: #1c4f7a;
+      --nav-h: 58px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
       color: var(--ink);
-      background: var(--paper);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #c5dbe8 0%, transparent 55%),
+        linear-gradient(180deg, var(--bg0), var(--bg1) 42%, #eef2f5);
       font-family: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
       line-height: 1.5;
     }
-    header, main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
-    header { display: flex; justify-content: space-between; gap: 24px; padding: 28px 0 8px; align-items: end; }
-    .eyebrow { margin: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; color: var(--spruce); }
-    h1, h2 { font-family: Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC", serif; font-weight: 600; }
-    h1 { margin: 0; font-size: 34px; line-height: 1.15; }
-    h2 { margin: 0 0 12px; font-size: 22px; }
-    #who { text-align: right; min-width: 220px; }
-    #who p { margin: 0; }
-    #who .quiet { color: var(--muted); font-size: 14px; }
-    .split { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; margin: 16px 0; }
-    .card, form.card { background: var(--card); border: 1px solid var(--line); padding: 16px 18px 18px; }
-    form.card { margin: 0; }
+    .shell {
+      width: min(720px, 100%);
+      margin: 0 auto;
+      min-height: 100%;
+      padding: 18px 16px calc(var(--nav-h) + var(--safe-bottom) + 20px);
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+    .eyebrow {
+      margin: 0 0 4px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 11px;
+      color: var(--accent);
+    }
+    h1, h2, h3, summary {
+      font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC", serif;
+      font-weight: 600;
+    }
+    h1 { margin: 0; font-size: clamp(28px, 7vw, 36px); line-height: 1.12; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 10px; font-size: 20px; }
+    h3 { margin: 0; font-size: 17px; }
+    #who { text-align: right; min-width: 0; }
+    #who p { margin: 0; font-size: 14px; }
+    #who .quiet, .quiet { color: var(--muted); font-size: 13px; }
+    .panel[hidden] { display: none !important; }
+    .block, .domain, form.settings-block {
+      background: color-mix(in srgb, var(--surface) 92%, white);
+      border: 1px solid var(--line);
+      padding: 14px 14px 16px;
+      margin: 0 0 12px;
+    }
+    .domain-head { margin-bottom: 10px; }
+    .domain-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
     label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
     input, select, button { font: inherit; color: inherit; }
-    input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); background: #fff; }
-    .row { display: flex; gap: 10px; align-items: center; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 0;
+    }
+    .row { display: flex; gap: 10px; align-items: start; }
+    .row > * { flex: 1; min-width: 0; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    button { background: var(--spruce); color: #f7f4ee; border: 0; padding: 8px 14px; cursor: pointer; }
-    button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    button {
+      background: var(--accent);
+      color: var(--accent-ink);
+      border: 0;
+      padding: 10px 14px;
+      cursor: pointer;
+      min-height: 42px;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
     button:disabled { opacity: 0.6; cursor: wait; }
-    .msg { min-height: 1.2em; color: var(--rust); font-size: 14px; }
-    .quiet { color: var(--muted); font-size: 13px; }
+    .msg { min-height: 1.2em; color: var(--alert); font-size: 14px; }
     .banner { padding: 12px 14px; border: 1px solid var(--line); margin: 0 0 12px; }
-    .banner-sample { background: #f3e6c8; border-color: #e0c98a; }
-    .banner-real { background: #e5f0ec; border-color: #b7d4cb; }
-    .window { color: var(--muted); margin-top: 0; }
-    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; margin-bottom: 16px; }
-    .metric { background: var(--card); border: 1px solid var(--line); padding: 10px 12px; }
+    .banner-sample { background: #efe4c8; border-color: #d8c288; }
+    .banner-real { background: #dceee8; border-color: #b4d4cb; }
+    .window { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+    .range-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 0 12px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .range-bar::-webkit-scrollbar { display: none; }
+    .range-chip {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      padding: 8px 12px;
+      min-height: 38px;
+      white-space: nowrap;
+    }
+    .range-chip[aria-pressed="true"] {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-ink);
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .metric {
+      border-top: 2px solid var(--accent);
+      padding: 8px 2px 4px;
+      background: transparent;
+    }
     .metric span, .metric small { display: block; color: var(--muted); font-size: 12px; }
-    .metric strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.2; margin: 2px 0; }
+    .metric strong {
+      display: block;
+      font-size: clamp(18px, 5vw, 24px);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+      margin: 4px 0;
+      word-break: break-word;
+    }
     .flags, .suggestions, .notes { margin: 0; padding-left: 18px; }
     .flags { list-style: none; padding: 0; }
-    .flag { border-left: 4px solid var(--navy); padding: 8px 10px; margin: 0 0 8px; background: #fbfaf6; }
+    .flag { border-left: 4px solid var(--info); padding: 8px 10px; margin: 0 0 8px; background: rgba(255,255,255,0.45); }
     .flag strong { display: block; }
-    .flag-alert { border-color: var(--rust); }
-    .flag-warning { border-color: var(--gold); }
-    .flag-info { border-color: var(--navy); }
-    #charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .chart-card { border: 1px solid var(--line); background: #f7f4ee; padding: 4px; }
-    .chart-card.wide { grid-column: 1 / -1; }
+    .flag-alert { border-color: var(--alert); }
+    .flag-warning { border-color: var(--warn); }
+    .flag-info { border-color: var(--info); }
+    .charts { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    .chart-card {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: 8px 6px 4px;
+      min-height: 300px;
+    }
+    .chart-card .js-plot { width: 100%; min-height: 280px; }
     #coach-text { white-space: pre-wrap; margin-bottom: 0; }
-    details.methods summary { cursor: pointer; font-family: Palatino, "Palatino Linotype", "Songti SC", serif; font-size: 22px; }
+    details.methods summary { cursor: pointer; font-size: 20px; }
     details.methods dl { margin: 12px 0 0; }
     details.methods dt { font-weight: 650; margin-top: 10px; }
     details.methods dd { margin: 4px 0 0; color: var(--muted); }
-    footer { width: min(1080px, calc(100% - 32px)); margin: 8px auto 32px; color: var(--muted); font-size: 13px; }
+    footer {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
     code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; }
-    a { color: var(--spruce); }
-    [hidden] { display: none !important; }
-    @media (max-width: 800px) {
-      header, .split, #charts { display: block; }
-      #who { text-align: left; margin-top: 12px; }
-      .chart-card { margin-top: 12px; }
+    a { color: var(--accent); }
+    .tabbar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: calc(var(--nav-h) + var(--safe-bottom));
+      padding: 0 0 var(--safe-bottom);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: color-mix(in srgb, var(--surface) 94%, white);
+      border-top: 1px solid var(--line);
+      z-index: 20;
+    }
+    .tabbar button {
+      background: transparent;
+      color: var(--muted);
+      border: 0;
+      border-radius: 0;
+      min-height: var(--nav-h);
+      font-size: 14px;
+      letter-spacing: 0.04em;
+    }
+    .tabbar button[aria-selected="true"] {
+      color: var(--accent);
+      box-shadow: inset 0 2px 0 var(--accent);
+      font-weight: 650;
+    }
+    @media (min-width: 720px) {
+      .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .charts { grid-template-columns: 1fr 1fr; }
+      .chart-card.wide { grid-column: 1 / -1; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <p class="eyebrow">本地工具</p>
-      <h1>佳明体能健康分析</h1>
-    </div>
-    <div id="who"></div>
-  </header>
-  <main>
-    <div class="split">
-      <form id="account-form" class="card">
+  <div class="shell">
+    <header class="top">
+      <div>
+        <p class="eyebrow">本地体能</p>
+        <h1>佳明体能健康分析</h1>
+      </div>
+      <div id="who"></div>
+    </header>
+
+    <section id="panel-data" class="panel" data-panel="data">
+      <div id="range-bar" class="range-bar" role="toolbar" aria-label="时间范围"></div>
+      <div id="report">
+        @@REPORT_HTML@@
+      </div>
+    </section>
+
+    <section id="panel-settings" class="panel" data-panel="settings" hidden>
+      <form id="account-form" class="settings-block">
         <h2>配置</h2>
-        <p class="quiet">在 Garmin Connect 网页创建 Personal API Key，粘贴到这里一次即可。本工具用官方 Personal API（API Key → 访问令牌）读取你自己的活动与健康数据，不再使用邮箱密码登录。</p>
-        <p class="quiet">说明与创建入口：<a href="https://developer.garmin.com/gc-developer-program/personal/personal-api/" target="_blank" rel="noopener noreferrer">Garmin Connect Personal API</a> · <a href="https://connect.garmin.com/modern/settings/personalApiToken" target="_blank" rel="noopener noreferrer">Personal API Key 页面</a></p>
+        <p class="quiet">在 Garmin Connect 创建 Personal API Key，粘贴一次即可。用官方 Personal API（API Key → 访问令牌）读取你自己的数据。</p>
+        <p class="quiet"><a href="https://developer.garmin.com/gc-developer-program/personal/personal-api/" target="_blank" rel="noopener noreferrer">Personal API 说明</a> · <a href="https://connect.garmin.com/modern/settings/personalApiToken" target="_blank" rel="noopener noreferrer">创建 Key</a></p>
         <label for="display-name">配置名称</label>
         <input id="display-name" name="display_name" maxlength="40" required placeholder="例如：我的手表">
         <label for="label">备注标签（可选）</label>
         <input id="label" name="label" maxlength="60" placeholder="可选说明">
         <label for="personal-api-key">Garmin Personal API Key</label>
         <input id="personal-api-key" name="personal_api_key" type="password" autocomplete="off" required placeholder="只显示一次，请妥善保存">
-        <label for="region">API 地区（须与创建 Key 的 Connect 站点一致）</label>
+        <label for="region">API 地区（须与创建 Key 的站点一致）</label>
         <select id="region" name="region">
-          <option value="global">国际区（personal.connectapi.garmin.com）</option>
-          <option value="cn">中国区（personal.connectapi.garmin.cn）</option>
+          <option value="global">国际区（garmin.com）</option>
+          <option value="cn">中国区（garmin.cn）</option>
         </select>
         <div class="row">
-          <div style="flex:1">
-            <label for="sex">性别（可选，用于 TRIMP）</label>
+          <div>
+            <label for="sex">性别（可选）</label>
             <select id="sex" name="sex">
               <option value="unknown">未填</option>
               <option value="male">男</option>
               <option value="female">女</option>
             </select>
           </div>
-          <div style="flex:1">
-            <label for="age">年龄（可选）</label>
+          <div>
+            <label for="age">年龄</label>
             <input id="age" name="age" inputmode="numeric">
           </div>
-          <div style="flex:1">
-            <label for="hr-max">最大心率（可选）</label>
+          <div>
+            <label for="hr-max">最大心率</label>
             <input id="hr-max" name="hr_max" inputmode="numeric">
           </div>
         </div>
         <div class="actions">
-          <button type="submit">保存配置并设为当前</button>
+          <button type="submit">保存并设为当前</button>
         </div>
         <p id="form-msg" class="msg" role="status"></p>
       </form>
-      <div class="card">
-        <h2>当前与同步</h2>
+
+      <div class="settings-block">
+        <h2>账号与同步</h2>
         <label for="user-select">已保存的配置</label>
         <select id="user-select"></select>
         <div class="actions">
-          <button type="button" id="switch-user" class="secondary">切换到所选配置</button>
-          <button type="button" id="delete-user" class="secondary">删除所选配置</button>
+          <button type="button" id="switch-user" class="secondary">切换</button>
+          <button type="button" id="delete-user" class="secondary">删除</button>
         </div>
         <label for="deepseek-key">DeepSeek API Key（可选）</label>
         <input id="deepseek-key" type="password" autocomplete="off" placeholder="只保存在本机，不会回显">
@@ -148,24 +279,33 @@
           <button type="button" id="sync">从佳明同步最近 90 天</button>
         </div>
         <p id="sync-msg" class="msg" role="status"></p>
-        <p class="quiet">Personal API Key、访问令牌缓存和 DeepSeek 密钥写在 <code id="data-dir"></code>，文件权限 0600。同步时用 API Key 换取临时访问令牌（最长约 24 小时），不会向佳明发送邮箱密码。DeepSeek 只在查看已同步数据且保存了密钥时收到算好的指标。</p>
+        <p class="quiet">密钥写在 <code id="data-dir"></code>，权限 0600。</p>
       </div>
-    </div>
-    <div id="report">
-      @@REPORT_HTML@@
-    </div>
-  </main>
-  <footer>
-    这些分区是训练监控里的常用启发式算法，不是医疗诊断。图表脚本来自本机已安装的 plotly 包，打开页面不必再去 CDN。
-  </footer>
+    </section>
+
+    <footer>分区是训练监控启发式，不是医疗诊断。图表来自本机 plotly。</footer>
+  </div>
+
+  <nav class="tabbar" role="tablist" aria-label="主导航">
+    <button type="button" id="tab-data" role="tab" aria-selected="true" aria-controls="panel-data">数据</button>
+    <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings">设置</button>
+  </nav>
+
   <script id="bootstrap" type="application/json">@@BOOTSTRAP_JSON@@</script>
   <script src="/static/plotly.min.js"></script>
   <script>
     const boot = JSON.parse(document.getElementById("bootstrap").textContent);
+    let currentRange = (boot.report && boot.report.range) || "90";
+    let currentReport = boot.report || null;
 
     function text(id, value) {
       const node = document.getElementById(id);
       if (node) node.textContent = value || "";
+    }
+
+    function esc(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
     async function post(url, body, method) {
@@ -192,12 +332,9 @@
       const line = document.createElement("p");
       const sub = document.createElement("p");
       sub.className = "quiet";
-      if (status.active_user) {
-        line.textContent = "当前配置：" + profileLabel(status.active_user);
-      } else {
-        line.textContent = "当前配置：还没有添加";
-      }
-      sub.textContent = status.viewing === "garmin" ? "正在查看：已同步的佳明数据" : "正在查看：示例数据";
+      if (status.active_user) line.textContent = profileLabel(status.active_user);
+      else line.textContent = "尚未添加配置";
+      sub.textContent = status.viewing === "garmin" ? "已同步数据" : "示例数据";
       host.append(line, sub);
     }
 
@@ -221,9 +358,88 @@
     }
 
     function keyText(source) {
-      if (source === "file") return "DeepSeek 密钥已写在本机 data 目录。页面不会回显它。";
-      if (source === "env") return "正在使用环境变量里的 DeepSeek 密钥。在页面保存后会改用本机文件。";
-      return "还没有 DeepSeek 密钥。不填也能看本地报告，只是没有模型建议。";
+      if (source === "file") return "DeepSeek 密钥已写在本机。";
+      if (source === "env") return "正在使用环境变量里的 DeepSeek 密钥。";
+      return "还没有 DeepSeek 密钥。本地报告仍可用。";
+    }
+
+    function showPanel(name) {
+      const data = document.getElementById("panel-data");
+      const settings = document.getElementById("panel-settings");
+      const tabData = document.getElementById("tab-data");
+      const tabSettings = document.getElementById("tab-settings");
+      const isData = name === "data";
+      data.hidden = !isData;
+      settings.hidden = isData;
+      tabData.setAttribute("aria-selected", isData ? "true" : "false");
+      tabSettings.setAttribute("aria-selected", isData ? "false" : "true");
+      if (isData) drawCharts();
+    }
+
+    function renderRangeBar(report) {
+      const host = document.getElementById("range-bar");
+      host.replaceChildren();
+      const ranges = (report && report.available_ranges) || [
+        {key: "today", label: "今天"},
+        {key: "7", label: "近 7 天"},
+        {key: "30", label: "近 30 天"},
+        {key: "90", label: "近 90 天"},
+      ];
+      ranges.forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "range-chip";
+        button.textContent = item.label;
+        button.setAttribute("aria-pressed", item.key === currentRange ? "true" : "false");
+        button.addEventListener("click", () => setRange(item.key));
+        host.append(button);
+      });
+    }
+
+    function renderDomains(report) {
+      const domains = report.domains || [];
+      return domains.map((domain) => {
+        const cards = (domain.metrics || []).map((item) =>
+          `<article class="metric"><span>${esc(item.label)}</span><strong>${esc(item.value)}</strong><small>${esc(item.hint || "")}</small></article>`
+        ).join("");
+        return `<section class="domain" data-domain="${esc(domain.id)}"><header class="domain-head"><h3>${esc(domain.title)}</h3><p>${esc(domain.blurb || "")}</p></header><div class="metrics">${cards}</div></section>`;
+      }).join("");
+    }
+
+    function renderFlags(report) {
+      const flags = report.flags || [];
+      if (!flags.length) {
+        return '<li class="flag flag-info"><strong>没有触发警报</strong><span>当前这组数没有碰到下面写明的那些线。</span></li>';
+      }
+      return flags.map((item) =>
+        `<li class="flag flag-${esc(item.level)}"><strong>${esc(item.title)}</strong><span>${esc(item.detail)}</span></li>`
+      ).join("");
+    }
+
+    function renderReportShell(report, coach, warnings, syncedAt) {
+      const summary = report.summary || {};
+      const windowInfo = report.window || {};
+      const banner = report.sample
+        ? '<p class="banner banner-sample"><strong>示例数据</strong>不是你的佳明记录。</p>'
+        : `<p class="banner banner-real"><strong>佳明数据</strong>${syncedAt ? " 同步于 " + esc(syncedAt) + "（北京时间）。" : ""}</p>`;
+      const windowHtml = windowInfo.start
+        ? `<p class="window">当前范围 ${esc(report.range_label || "")}：${esc(windowInfo.start)} 至 ${esc(windowInfo.end)}，共 ${esc(windowInfo.days)} 天。负荷口径：${esc(summary.load_method_label || "")}。</p>`
+        : '<p class="window">还没有可计算的日期。</p>';
+      const suggestions = (report.suggestions || []).map((line) => `<li>${esc(line)}</li>`).join("");
+      const notes = (report.notes || []).map((line) => `<li>${esc(line)}</li>`).join("");
+      const methods = (report.methods || []).map((item) => `<dt>${esc(item.title)}</dt><dd>${esc(item.text)}</dd>`).join("");
+      const warningHtml = (warnings && warnings.length)
+        ? `<section class="block"><h2>同步提示</h2><ul>${warnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>`
+        : "";
+      const coachBody = coach && coach.available && coach.text ? coach.text : (coach && coach.reason) || "";
+      return `${banner}${windowHtml}<div id="domains">${renderDomains(report)}</div>
+        <section class="block"><h2>风险与恢复</h2><ul class="flags">${renderFlags(report)}</ul></section>
+        <section class="block"><h2>本地建议</h2><ol class="suggestions">${suggestions}</ol></section>
+        <section class="block"><h2>图表</h2><div id="charts" class="charts"></div></section>
+        <section id="coach" class="block"><h2>模型建议</h2><p id="coach-text">${esc(coachBody)}</p></section>
+        ${warningHtml}
+        <section class="block"><h2>计算说明</h2><ul class="notes">${notes}</ul></section>
+        <details class="block methods"><summary>这些数字怎么来的</summary><dl>${methods}</dl></details>`;
     }
 
     function hasPoint(values) {
@@ -234,28 +450,44 @@
       const card = document.createElement("div");
       card.className = "chart-card" + (wide ? " wide" : "");
       const node = document.createElement("div");
+      node.className = "js-plot";
       card.append(node);
       host.append(card);
       const layout = Object.assign({
-        paper_bgcolor: "#f7f4ee",
-        plot_bgcolor: "#f7f4ee",
-        font: {family: "PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif", color: "#1c1915", size: 12},
-        margin: {t: 52, r: extra && extra.yaxis2 ? 56 : 20, b: 40, l: 52},
-        xaxis: {gridcolor: "#e4ddd0", zeroline: false},
-        yaxis: {gridcolor: "#e4ddd0", zerolinecolor: "#cfc6b4"},
-        legend: {orientation: "h", y: 1.16},
-        height: 320,
+        paper_bgcolor: "#f5f8fa",
+        plot_bgcolor: "#f5f8fa",
+        font: {family: "PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif", color: "#132029", size: 12},
+        margin: {t: 56, r: extra && extra.yaxis2 ? 52 : 18, b: 48, l: 48},
+        xaxis: {gridcolor: "#d7e0e6", zeroline: false, automargin: true},
+        yaxis: {gridcolor: "#d7e0e6", zerolinecolor: "#b7c4cc", automargin: true},
+        legend: {
+          orientation: "h",
+          y: 1.18,
+          x: 0,
+          xanchor: "left",
+          yanchor: "bottom",
+          font: {size: 11},
+          bgcolor: "rgba(245,248,250,0.9)",
+        },
+        height: wide ? 340 : 300,
+        autosize: true,
       }, extra || {});
-      layout.title = {text: title, font: {size: 15}, x: 0};
+      layout.title = {text: title, font: {size: 14}, x: 0, xanchor: "left", y: 0.98, yanchor: "top"};
+      if (layout.yaxis2) {
+        layout.yaxis2 = Object.assign({automargin: true, showgrid: false}, layout.yaxis2);
+      }
       try {
-        Plotly.newPlot(node, traces, layout, {responsive: true, displayModeBar: false});
+        Plotly.newPlot(node, traces, layout, {responsive: true, displayModeBar: false, displaylogo: false});
       } catch (err) {
         node.textContent = "这张图没有画出来。";
       }
     }
 
     function line(name, x, y, color, extra) {
-      return Object.assign({type: "scatter", mode: "lines", name: name, x: x, y: y, connectgaps: false, line: {color: color, width: 2}}, extra || {});
+      return Object.assign({
+        type: "scatter", mode: "lines", name: name, x: x, y: y, connectgaps: false,
+        line: {color: color, width: 2},
+      }, extra || {});
     }
 
     function hlines(values, yref) {
@@ -270,82 +502,118 @@
       if (!host) return;
       host.replaceChildren();
       if (typeof Plotly === "undefined") {
-        host.textContent = "图表库没有加载。上面的数字仍然有效。请确认已安装 plotly，并且本机能打开 /static/plotly.min.js。";
+        host.textContent = "图表库没有加载。上面的数字仍然有效。";
         return;
       }
-      const series = boot.series || {};
+      const series = (currentReport && currentReport.series) || boot.series || {};
+      const intensity = (currentReport && currentReport.summary && currentReport.summary.intensity) || boot.intensity;
       const dates = series.dates || [];
       if (hasPoint(series.ctl) || hasPoint(series.tsb)) {
         mount(host, "体能、疲劳与状态", [
-          line("CTL 体能", dates, series.ctl, "#145c52"),
-          line("ATL 疲劳", dates, series.atl, "#9c3d2e"),
-          line("TSB 状态", dates, series.tsb, "#1d4e89"),
+          line("CTL 体能", dates, series.ctl, "#0b6b63"),
+          line("ATL 疲劳", dates, series.atl, "#a93a2c"),
+          line("TSB 状态", dates, series.tsb, "#1c4f7a"),
         ], {yaxis: {title: "与日负荷同一单位"}, shapes: hlines([-30, 0, 25])}, true);
       }
       if (hasPoint(series.load) || hasPoint(series.acwr)) {
         mount(host, "每日负荷与 ACWR", [
-          {type: "bar", name: "每日负荷", x: dates, y: series.load, marker: {color: "#e2c7a4"}},
-          line("ACWR", dates, series.acwr, "#1d4e89", {yaxis: "y2"}),
+          {type: "bar", name: "每日负荷", x: dates, y: series.load, marker: {color: "#9bb7c4"}},
+          line("ACWR", dates, series.acwr, "#1c4f7a", {yaxis: "y2"}),
         ], {
           yaxis: {title: "日负荷"},
           yaxis2: {title: "ACWR", overlaying: "y", side: "right", showgrid: false},
           shapes: hlines([0.8, 1.3, 1.5], "y2"),
+          legend: {orientation: "h", y: 1.22, x: 0, xanchor: "left", yanchor: "bottom"},
+          margin: {t: 64, r: 52, b: 48, l: 48},
+          height: 360,
         }, true);
       }
       if (hasPoint(series.rhr)) {
-        mount(host, "静息心率", [line("静息心率", dates, series.rhr, "#9c3d2e")], {yaxis: {title: "bpm"}}, false);
+        mount(host, "静息心率", [line("静息心率", dates, series.rhr, "#a93a2c")], {yaxis: {title: "bpm"}}, false);
       }
       if (hasPoint(series.hrv)) {
-        const traces = [line("夜间 HRV", dates, series.hrv, "#145c52")];
-        if (hasPoint(series.hrv_low)) traces.push(line("基线下沿", dates, series.hrv_low, "#8a8175", {line: {color: "#8a8175", width: 1, dash: "dot"}}));
-        if (hasPoint(series.hrv_high)) traces.push(line("基线上沿", dates, series.hrv_high, "#8a8175", {line: {color: "#8a8175", width: 1, dash: "dot"}}));
+        const traces = [line("夜间 HRV", dates, series.hrv, "#0b6b63")];
+        if (hasPoint(series.hrv_low)) traces.push(line("基线下沿", dates, series.hrv_low, "#7a8790", {line: {color: "#7a8790", width: 1, dash: "dot"}}));
+        if (hasPoint(series.hrv_high)) traces.push(line("基线上沿", dates, series.hrv_high, "#7a8790", {line: {color: "#7a8790", width: 1, dash: "dot"}}));
         mount(host, "HRV 与个人基线", traces, {yaxis: {title: "佳明夜间值"}}, false);
       }
       if (hasPoint(series.sleep_hours)) {
-        mount(host, "睡眠时长", [line("睡眠", dates, series.sleep_hours, "#1d4e89")], {yaxis: {title: "小时"}, shapes: hlines([7])}, false);
+        mount(host, "睡眠时长", [line("睡眠", dates, series.sleep_hours, "#1c4f7a")], {yaxis: {title: "小时"}, shapes: hlines([7])}, false);
       }
       if (hasPoint(series.body_battery)) {
-        mount(host, "Body Battery", [line("最近读数", dates, series.body_battery, "#145c52")], {yaxis: {title: "0–100"}, shapes: hlines([25])}, false);
+        mount(host, "Body Battery", [line("最近读数", dates, series.body_battery, "#0b6b63")], {yaxis: {title: "0–100"}, shapes: hlines([25])}, false);
       }
       if (hasPoint(series.stress)) {
-        mount(host, "压力", [line("压力", dates, series.stress, "#8a5a12")], {yaxis: {title: "佳明分数"}, shapes: hlines([51])}, false);
+        mount(host, "压力", [line("压力", dates, series.stress, "#8f6414")], {yaxis: {title: "佳明分数"}, shapes: hlines([51])}, false);
       }
       const weeks = series.weeks || [];
       const sports = [];
       weeks.forEach((week) => Object.keys(week.sports || {}).forEach((name) => { if (!sports.includes(name)) sports.push(name); }));
       if (sports.length) {
-        const palette = ["#145c52", "#1d4e89", "#9c3d2e", "#8a5a12", "#5c4d7a", "#3d6b4f"];
+        const palette = ["#0b6b63", "#1c4f7a", "#a93a2c", "#8f6414", "#4d6a7c", "#2f6b4f"];
         mount(host, "每周训练时长", sports.map((name, index) => ({
           type: "bar", name: name, marker: {color: palette[index % palette.length]},
           x: weeks.map((week) => week.label),
           y: weeks.map((week) => (week.sports && week.sports[name]) || 0),
-        })), {barmode: "stack", yaxis: {title: "小时"}}, true);
+        })), {
+          barmode: "stack",
+          yaxis: {title: "小时"},
+          legend: {orientation: "h", y: 1.2, x: 0, xanchor: "left", yanchor: "bottom"},
+          margin: {t: 64, r: 18, b: 48, l: 48},
+          height: 340,
+        }, true);
       }
-      if (boot.intensity && typeof boot.intensity.low === "number") {
-        const item = boot.intensity;
-        mount(host, "强度分布（" + (item.method_label || "") + "）", [{
+      if (intensity && typeof intensity.low === "number") {
+        mount(host, "强度分布（" + (intensity.method_label || "") + "）", [{
           type: "bar", x: ["低", "中", "高"],
-          y: [item.low * 100, item.mid * 100, item.high * 100],
-          marker: {color: ["#145c52", "#8a5a12", "#9c3d2e"]},
+          y: [intensity.low * 100, intensity.mid * 100, intensity.high * 100],
+          marker: {color: ["#0b6b63", "#8f6414", "#a93a2c"]},
           name: "占比",
-        }], {yaxis: {title: "%", range: [0, 100]}, showlegend: false}, false);
+          showlegend: false,
+        }], {yaxis: {title: "%", range: [0, 100]}, showlegend: false, margin: {t: 56, r: 18, b: 48, l: 48}}, false);
       }
-      if (!host.childElementCount) {
-        host.textContent = "这段数据还不够画图。";
+      if (!host.childElementCount) host.textContent = "这段数据还不够画图。";
+    }
+
+    async function setRange(rangeKey) {
+      if (rangeKey === currentRange && currentReport) {
+        renderRangeBar(currentReport);
+        return;
+      }
+      currentRange = rangeKey;
+      renderRangeBar({available_ranges: (currentReport && currentReport.available_ranges) || [], range: currentRange});
+      try {
+        const response = await fetch("/api/report?range=" + encodeURIComponent(rangeKey));
+        const report = await response.json();
+        currentReport = report;
+        boot.series = report.series;
+        boot.intensity = (report.summary || {}).intensity;
+        const coach = report.coaching || boot.coach || {};
+        document.getElementById("report").innerHTML = renderReportShell(
+          report, coach, report.sync_warnings || boot.warnings || [], boot.synced_at
+        );
+        renderRangeBar(report);
+        drawCharts();
+      } catch (err) {
+        text("sync-msg", "切换时间范围失败。");
       }
     }
 
     async function loadCoach() {
       if (!boot.fetch_coach) return;
       const node = document.getElementById("coach-text");
+      if (!node) return;
       try {
         const response = await fetch("/api/coach");
         const data = await response.json();
-        node.textContent = data.available && data.text ? data.text : (data.reason || "模型建议不可用。本地计算的报告仍然有效。");
+        node.textContent = data.available && data.text ? data.text : (data.reason || "模型建议不可用。");
       } catch (err) {
-        node.textContent = "模型建议不可用（请求失败）。本地计算的报告仍然有效。";
+        node.textContent = "模型建议不可用（请求失败）。";
       }
     }
+
+    document.getElementById("tab-data").addEventListener("click", () => showPanel("data"));
+    document.getElementById("tab-settings").addEventListener("click", () => showPanel("settings"));
 
     document.getElementById("account-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -361,10 +629,7 @@
         age: age === "" ? null : Number(age),
         hr_max: hr === "" ? null : Number(hr),
       });
-      if (!data.ok) {
-        text("form-msg", data.message || "没有保存。");
-        return;
-      }
+      if (!data.ok) { text("form-msg", data.message || "没有保存。"); return; }
       location.reload();
     });
 
@@ -379,7 +644,7 @@
     document.getElementById("delete-user").addEventListener("click", async () => {
       const id = document.getElementById("user-select").value;
       if (!id) return;
-      if (!confirm("确定删除这个本地配置吗？本机保存的 Personal API Key 和缓存会被删掉，不会删除佳明云端的数据。")) return;
+      if (!confirm("确定删除这个本地配置吗？不会删除佳明云端数据。")) return;
       const response = await fetch("/api/users/" + id, {method: "DELETE"});
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) { text("sync-msg", data.message || "没有删除。"); return; }
@@ -402,7 +667,7 @@
     document.getElementById("sync").addEventListener("click", async () => {
       const button = document.getElementById("sync");
       button.disabled = true;
-      text("sync-msg", "正在用 Personal API 读取最近 90 天，请稍等。密钥不会写进页面日志。");
+      text("sync-msg", "正在同步最近 90 天…");
       try {
         const data = await post("/api/sync", {});
         if (!data.ok) {
@@ -410,9 +675,9 @@
           button.disabled = false;
           return;
         }
-        location.reload();
+        location.href = "/?range=" + encodeURIComponent(currentRange);
       } catch (err) {
-        text("sync-msg", "同步请求失败。可以再试一次。");
+        text("sync-msg", "同步请求失败。");
         button.disabled = false;
       }
     });
@@ -421,8 +686,10 @@
     fillUsers(boot.status);
     text("key-status", keyText(boot.status.deepseek));
     text("data-dir", boot.status.data_dir);
+    renderRangeBar(currentReport || {available_ranges: [], range: currentRange});
     drawCharts();
     loadCoach();
+    showPanel("data");
   </script>
 </body>
 </html>

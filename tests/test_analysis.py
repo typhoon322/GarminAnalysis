@@ -207,3 +207,26 @@ def test_sample_report_is_labeled_and_grounded():
     assert "CTL" in text
     assert report["summary"]["intensity"]["low"] > 0.7
     assert "示例" in report["notes"][0]
+
+
+def test_range_filters_series_length_and_keeps_ctl_continuous():
+    loads = [30.0] * 100
+    full = analyze(_bundle(loads), range_key="all")
+    week = analyze(_bundle(loads), range_key="7")
+    today = analyze(_bundle(loads), range_key="today")
+    assert full["range"] == "all"
+    assert len(full["series"]["dates"]) == 100
+    assert len(week["series"]["dates"]) == 7
+    assert len(today["series"]["dates"]) == 1
+    assert week["summary"]["ctl"] == full["summary"]["ctl"]
+    assert week["summary"]["range_days"] == 7
+    assert any(item["key"] == "all" for item in full["available_ranges"])
+    assert week["summary"]["range_hours"] is not None
+
+
+def test_normalize_range_key_aliases():
+    from app.analysis import normalize_range_key
+    assert normalize_range_key("today") == "today"
+    assert normalize_range_key("1") == "today"
+    assert normalize_range_key("30") == "30"
+    assert normalize_range_key("nope") == "90"
