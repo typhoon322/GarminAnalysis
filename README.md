@@ -36,11 +36,13 @@ Windows 可以双击或在命令行运行 `run.bat`（同样创建 `.venv`、安
 
 1. 登录 [Garmin Connect 网页](https://connect.garmin.com/)，打开 [Personal API Key 页面](https://connect.garmin.com/modern/settings/personalApiToken)（也可在设置里搜索 Personal API）。
 2. 选择 **Create Key**，阅读并接受条款，选择过期时间后创建。密钥**只会显示一次**，请立刻复制并妥善保存。
-3. 打开本机页面，在「配置」里填写配置名称，粘贴 Personal API Key；可选填写备注标签、性别、年龄、最大心率。
+3. 打开本机页面，在「配置」里填写配置名称，粘贴 Personal API Key；选择 **国际区或中国区**（必须与创建 Key 的 Connect 站点一致：`.com` / `.cn`）；可选填写备注标签、性别、年龄、最大心率。
 4. 点「保存配置并设为当前」，再点「从佳明同步最近 90 天」。
 5. DeepSeek API Key 可填可不填，在同一侧卡片里保存。
 
-可添加多个命名配置，每个配置各自保存一份 Personal API Key。这些都写在本机，不必改代码。`.env.example` 里没有必填的佳明密钥。可选的 `DEEPSEEK_API_KEY`、`DATA_DIR`、`PORT` 只在你想用环境变量时才需要；复制成 `.env` 即可。只要 `data/secrets.json` 已经存在，DeepSeek 密钥以这个文件为准。
+可添加多个命名配置，每个配置各自保存一份 Personal API Key。中国区 Key 只能打 `personal.connectapi.garmin.cn`，国际区 Key 只能打 `.com`，不要混用。这些都写在本机，不必改代码。`.env.example` 里没有必填的佳明密钥。可选的 `DEEPSEEK_API_KEY`、`DATA_DIR`、`PORT` 只在你想用环境变量时才需要；复制成 `.env` 即可。只要 `data/secrets.json` 已经存在，DeepSeek 密钥以这个文件为准。
+
+同步窗口是最近 90 天。若接口正常但窗口内无活动/健康数据，页面会提示账号上更早的活动日期（若有），请确认手表已同步到**创建该 Key 的同一个 Connect 账号**。
 
 不要把 Personal API Key 放进命令行、截图或公开仓库。
 

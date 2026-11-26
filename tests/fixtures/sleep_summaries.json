@@ -1,22 +1,20 @@
-{
-  "dailySleepDTOs": [
-    {
-      "calendarDate": "2026-11-20",
-      "sleepTimeSeconds": 27000,
-      "sleepScores": {
-        "overall": {
-          "value": 82
-        }
-      }
-    },
-    {
-      "calendarDate": "2026-11-21",
-      "sleepTimeSeconds": 25500,
-      "sleepScores": {
-        "overall": {
-          "value": 78
-        }
+[
+  {
+    "calendarDate": "2026-11-20",
+    "sleepTimeSeconds": 27000,
+    "sleepScores": {
+      "overall": {
+        "value": 82
       }
     }
-  ]
-}
+  },
+  {
+    "calendarDate": "2026-11-21",
+    "sleepTimeSeconds": 25500,
+    "sleepScores": {
+      "overall": {
+        "value": 78
+      }
+    }
+  }
+]

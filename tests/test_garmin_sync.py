@@ -102,10 +102,12 @@ def test_exchange_and_fetch_bundle_with_fixtures(fake_http, tmp_path, monkeypatc
     assert days["2026-11-20"]["sleep_seconds"] == 27000
     assert days["2026-11-20"]["body_battery"] == 61
     assert days["2026-11-20"]["stress"] == 28
+    assert days["2026-11-20"]["steps"] == 9000
     assert bundle["profile"]["vo2max_running"] == 49.2
-    assert bundle["profile"]["training_status"] == "PRODUCTIVE"
+    assert "training_status" not in bundle["profile"]
     assert bundle["profile"]["garmin_name"] == "测试跑者"
     assert fake_http.token_posts == 1
+    assert not any("trainingstatus" in path for path in fake_http.gets)
     # Second sync should reuse cached bearer (still >1h remaining).
     result2 = garmin_sync.sync_account(storage.active_user())
     assert result2["ok"] is True
@@ -113,6 +115,86 @@ def test_exchange_and_fetch_bundle_with_fixtures(fake_http, tmp_path, monkeypatc
     public = garmin_sync.public_sync_result(result)
     assert "bundle" not in public
     assert "test-personal-api-key" not in json.dumps(public)
+
+
+def test_empty_window_is_ok_without_training_status_404(tmp_path, monkeypatch):
+    """Empty dated ranges must not hard-fail on optional training-status 404."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+
+    class EmptyTransport(FakeTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if request.method == "POST" and path.endswith("/personal-api-key/token"):
+                self.token_posts += 1
+                return httpx.Response(200, text=_token_body())
+            self.gets.append(path)
+            if path.endswith("/search/activities"):
+                # Dated window empty; undated peek returns one old activity.
+                query = request.url.query or ""
+                if isinstance(query, (bytes, bytearray)):
+                    query = query.decode()
+                if "startDate=" in query:
+                    return httpx.Response(200, json=[])
+                return httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "activityId": 1,
+                            "activityName": "old",
+                            "activityType": {"typeKey": "running"},
+                            "startTimeLocal": "2019-04-14 08:00:00",
+                            "duration": 1800,
+                            "distance": 5000,
+                            "averageHR": 140,
+                        }
+                    ],
+                )
+            if path.endswith("/dailysummaries"):
+                return httpx.Response(200, json={"data": []})
+            if path.endswith("/dailySleepSummariesByDate"):
+                return httpx.Response(200, json=[])
+            if "/hrv/daily/" in path:
+                return httpx.Response(204)
+            if path.endswith("/bodyBattery/reports/daily"):
+                return httpx.Response(200, json=[])
+            if "/stats/stress/daily/" in path or "/stats/steps/daily/" in path:
+                return httpx.Response(200, json=[])
+            if path.endswith("/userprofile/settings"):
+                return httpx.Response(200, json={"displayName": "empty-window"})
+            if "/maxmet/daily/" in path:
+                return httpx.Response(200, json=[])
+            if "/trainingstatus/" in path:
+                return httpx.Response(404, json={"error": "NOT_FOUND", "status": 404})
+            if path.endswith("/dailyHeartRate"):
+                return httpx.Response(200, json={"calendarDate": "2026-11-26", "restingHeartRate": None})
+            return httpx.Response(404, text=f"unexpected {path}")
+
+    transport = EmptyTransport()
+    real_client = httpx.Client
+
+    def fake_client(*args, **kwargs):
+        kwargs = dict(kwargs)
+        kwargs["transport"] = transport
+        kwargs.setdefault("base_url", garmin_sync.BASE_URL)
+        return real_client(*args, **kwargs)
+
+    def fake_post(url, **kwargs):
+        request = httpx.Request("POST", url, headers=kwargs.get("headers"))
+        return transport.handle_request(request)
+
+    monkeypatch.setattr(garmin_sync.httpx, "Client", fake_client)
+    monkeypatch.setattr(garmin_sync.httpx, "post", fake_post)
+    monkeypatch.delenv("GARMIN_FITNESS_DISABLE_NETWORK", raising=False)
+
+    storage.add_user(display_name="empty-window", personal_api_key="empty-key")
+    result = garmin_sync.sync_account(storage.active_user())
+    assert result["ok"] is True, result["message"]
+    assert "trainingstatus" not in result["message"].lower()
+    assert "NOT_FOUND" not in result["message"]
+    assert "2019-04-14" in result["message"]
+    assert result["bundle"]["activities"] == []
+    assert result["bundle"]["days"] == []
+
 
 
 def test_token_refresh_when_near_expiry(fake_http, tmp_path, monkeypatch):

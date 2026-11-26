@@ -31,7 +31,10 @@ from app.normalize import (
 )
 
 SYNC_DAYS = 90
-BASE_URL = "https://personal.connectapi.garmin.com"
+BASE_URL_GLOBAL = "https://personal.connectapi.garmin.com"
+BASE_URL_CN = "https://personal.connectapi.garmin.cn"
+# Back-compat alias used by tests and callers.
+BASE_URL = BASE_URL_GLOBAL
 TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 # Match Garmin's official Personal API client: refresh when under 1 hour remains.
 TOKEN_REFRESH_WINDOW_SECONDS = 60 * 60
@@ -43,6 +46,13 @@ HRV_CHUNK_DAYS = 28
 BATTERY_CHUNK_DAYS = 28
 STRESS_CHUNK_DAYS = 28
 STEPS_CHUNK_DAYS = 28
+
+
+def base_url_for(user: dict | None = None) -> str:
+    region = str((user or {}).get("region") or "global").strip().lower()
+    if region in {"cn", "china", "garmin.cn"}:
+        return BASE_URL_CN
+    return BASE_URL_GLOBAL
 
 
 def _scrub(text: str, secrets: list[str]) -> str:
@@ -107,14 +117,38 @@ def _daterange_chunks(start: date, end: date, max_days: int) -> list[tuple[date,
     return chunks
 
 
+def _unwrap_payload(payload: Any) -> Any:
+    """Personal API sometimes wraps lists in {data|hrvSummaries|...}."""
+    if not isinstance(payload, dict):
+        return payload
+    for key in ("data", "hrvSummaries", "dailySleepDTOs", "activities", "activityList"):
+        inner = payload.get(key)
+        if isinstance(inner, list):
+            return inner
+    return payload
+
+
+def _is_optional_missing(err: str | None) -> bool:
+    if not err:
+        return False
+    return "HTTP 404" in err or "NOT_FOUND" in err
+
+
 class PersonalApiClient:
     """Thin httpx client for Personal API token + connectapi GETs."""
 
-    def __init__(self, access_token: str, *, timeout: float = REQUEST_TIMEOUT):
+    def __init__(
+        self,
+        access_token: str,
+        *,
+        base_url: str = BASE_URL_GLOBAL,
+        timeout: float = REQUEST_TIMEOUT,
+    ):
         self.access_token = access_token
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._client = httpx.Client(
-            base_url=BASE_URL,
+            base_url=self.base_url,
             timeout=timeout,
             headers={
                 "Accept": "application/json",
@@ -143,9 +177,14 @@ class PersonalApiClient:
         return response.json()
 
 
-def exchange_token(api_key: str, *, timeout: float = REQUEST_TIMEOUT) -> tuple[str, float]:
+def exchange_token(
+    api_key: str,
+    *,
+    base_url: str = BASE_URL_GLOBAL,
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[str, float]:
     """POST ApiKey → raw JWT body. Returns (access_token, expires_at)."""
-    url = f"{BASE_URL}{TOKEN_PATH}"
+    url = f"{base_url.rstrip('/')}{TOKEN_PATH}"
     response = httpx.post(
         url,
         headers={"Accept": "*/*", "Authorization": f"ApiKey {api_key}"},
@@ -170,7 +209,7 @@ def obtain_access_token(user: dict, *, force_refresh: bool = False, now: float |
         cached = storage.load_bearer(user["id"], api_key)
         if cached and cached["expires_at"] - clock > TOKEN_REFRESH_WINDOW_SECONDS:
             return cached["access_token"]
-    access_token, expires_at = exchange_token(api_key)
+    access_token, expires_at = exchange_token(api_key, base_url=base_url_for(user))
     storage.save_bearer(user["id"], api_key, access_token, expires_at)
     return access_token
 
@@ -202,6 +241,7 @@ def _fetch_chunked(
             continue
         if payload is None:
             continue
+        payload = _unwrap_payload(payload)
         if isinstance(payload, list):
             collected.extend(payload)
         else:
@@ -250,16 +290,12 @@ def _search_activities_window(
                 return left + right, warnings + left_w + right_w
             warnings.append(err)
             break
+        payload = _unwrap_payload(payload)
         batch = []
         if isinstance(payload, list):
             batch = payload
         elif isinstance(payload, dict):
-            for key in ("activities", "activityList", "results"):
-                if isinstance(payload.get(key), list):
-                    batch = payload[key]
-                    break
-            if not batch:
-                batch = [payload]
+            batch = [payload]
         if not batch:
             break
         rows.extend(batch)
@@ -280,6 +316,24 @@ def fetch_activities(client: PersonalApiClient, secrets: list[str], start: date,
         all_rows.extend(rows)
         warnings.extend(chunk_warnings)
     return all_rows, warnings
+
+
+def _newest_activity_date(client: PersonalApiClient, secrets: list[str]) -> str | None:
+    """Peek recent activities without a date filter (Personal API default)."""
+    payload, err = _call(
+        client,
+        secrets,
+        "activities-latest",
+        "/activitylist-service/activities/search/activities",
+        {"start": 0, "limit": 5},
+    )
+    if err or payload is None:
+        return None
+    rows = normalize_activities(_unwrap_payload(payload))
+    if not rows:
+        return None
+    dates = sorted({row["date"] for row in rows if row.get("date")})
+    return dates[-1] if dates else None
 
 
 def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> tuple[dict, list[str]]:
@@ -414,21 +468,11 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
         "vo2-max",
         f"/metrics-service/metrics/maxmet/daily/{start.isoformat()}/{end.isoformat()}",
     )
-    if vo2_err:
+    if vo2_err and not _is_optional_missing(vo2_err):
         warnings.append(vo2_err)
 
-    # Training status is not listed on Garmin's Personal API wrapper table; try once
-    # and treat failure as a soft warning without inventing fields.
-    status_payload, status_err = _call(
-        client,
-        secrets,
-        "training-status",
-        f"/metrics-service/metrics/trainingstatus/daily/{end.isoformat()}",
-    )
-    if status_err:
-        warnings.append(status_err)
-        status_payload = None
-
+    # Training status is not on the Personal API surface (live 404 NOT_FOUND). Skip quietly.
+    status_payload = None
     apply_training(profile, status_payload, vo2_payload)
 
     if isinstance(settings, dict):
@@ -437,6 +481,15 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
             if isinstance(value, str) and value.strip():
                 profile["garmin_name"] = value.strip()[:80]
                 break
+
+    if not activities and not days:
+        newest = _newest_activity_date(client, secrets)
+        if newest:
+            warnings.append(
+                f"最近 {SYNC_DAYS} 天接口返回为空；账号上较新的活动日期是 {newest}。"
+                "请确认手表已同步到创建此 Personal API Key 的 Connect 账号；"
+                "中国区 Key 请选择中国区端点。"
+            )
 
     bundle = {
         "sample": False,
@@ -463,10 +516,17 @@ def sync_account(user: dict) -> dict:
     except Exception as exc:
         return _fail("换取访问令牌失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
     try:
-        with PersonalApiClient(access_token) as client:
+        with PersonalApiClient(access_token, base_url=base_url_for(user)) as client:
             bundle, warnings = fetch_bundle(client, user, secrets)
     except Exception as exc:
         return _fail("读取数据失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
-    if not bundle["activities"] and not bundle["days"] and warnings:
-        return _fail("已认证，但活动、睡眠、心率这些接口都没有返回数据。" + warnings[0])
+
+    hard = [w for w in warnings if "失败" in w and not _is_optional_missing(w)]
+    if not bundle["activities"] and not bundle["days"]:
+        if hard:
+            return _fail("已认证，但活动、睡眠、心率这些接口读取失败。" + hard[0])
+        hint = next((w for w in warnings if "较新的活动日期" in w), None)
+        if hint:
+            return _ok(bundle, f"同步完成，但最近 {SYNC_DAYS} 天没有数据。" + hint)
+        return _ok(bundle, f"同步完成，但最近 {SYNC_DAYS} 天佳明没有返回活动或健康数据。")
     return _ok(bundle, f"已同步最近 {SYNC_DAYS} 天。")

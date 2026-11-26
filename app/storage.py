@@ -131,11 +131,15 @@ def assert_user_id(user_id: str) -> str:
 
 def public_user(user: dict) -> dict:
     key = str(user.get("personal_api_key") or "").strip()
+    region = str(user.get("region") or "global").strip().lower()
+    if region not in {"global", "cn"}:
+        region = "global"
     return {
         "id": user.get("id"),
         "display_name": user.get("display_name"),
         "label": user.get("label") or "",
         "has_personal_api_key": bool(key),
+        "region": region,
         "sex": user.get("sex") or "unknown",
         "age": user.get("age"),
         "hr_max": user.get("hr_max"),
@@ -192,6 +196,7 @@ def add_user(
     display_name: str,
     personal_api_key: str,
     label: str = "",
+    region: str = "global",
     sex: str = "unknown",
     age=None,
     hr_max=None,
@@ -205,6 +210,11 @@ def add_user(
     if len(key) > 500:
         raise StorageError("Personal API Key 太长。")
     label_text = " ".join((label or "").split())[:60]
+    region_value = str(region or "global").strip().lower()
+    if region_value in {"china", "garmin.cn"}:
+        region_value = "cn"
+    if region_value not in {"global", "cn"}:
+        raise StorageError("地区请选国际区或中国区。")
     if sex not in {"male", "female", "unknown"}:
         raise StorageError("性别请选男、女，或留空。")
     age_value = _optional_number(age, "年龄", 10, 100, True)
@@ -223,6 +233,7 @@ def add_user(
             "display_name": name,
             "label": label_text,
             "personal_api_key": key,
+            "region": region_value,
             "sex": sex,
             "age": age_value,
             "hr_max": hr_value,
@@ -234,6 +245,7 @@ def add_user(
         existing["display_name"] = name
         existing["label"] = label_text
         existing["personal_api_key"] = key
+        existing["region"] = region_value
         existing["sex"] = sex
         existing["age"] = age_value
         existing["hr_max"] = hr_value

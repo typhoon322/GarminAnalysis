@@ -101,6 +101,11 @@
         <input id="label" name="label" maxlength="60" placeholder="可选说明">
         <label for="personal-api-key">Garmin Personal API Key</label>
         <input id="personal-api-key" name="personal_api_key" type="password" autocomplete="off" required placeholder="只显示一次，请妥善保存">
+        <label for="region">API 地区（须与创建 Key 的 Connect 站点一致）</label>
+        <select id="region" name="region">
+          <option value="global">国际区（personal.connectapi.garmin.com）</option>
+          <option value="cn">中国区（personal.connectapi.garmin.cn）</option>
+        </select>
         <div class="row">
           <div style="flex:1">
             <label for="sex">性别（可选，用于 TRIMP）</label>
@@ -176,8 +181,9 @@
 
     function profileLabel(user) {
       const tag = user.label ? " · " + user.label : "";
+      const region = user.region === "cn" ? " · 中国区" : "";
       const key = user.has_personal_api_key ? "" : " · 缺 Key";
-      return user.display_name + tag + key;
+      return user.display_name + tag + region + key;
     }
 
     function renderWho(status) {
@@ -350,6 +356,7 @@
         display_name: document.getElementById("display-name").value.trim(),
         label: document.getElementById("label").value.trim(),
         personal_api_key: document.getElementById("personal-api-key").value.trim(),
+        region: document.getElementById("region").value,
         sex: document.getElementById("sex").value,
         age: age === "" ? null : Number(age),
         hr_max: hr === "" ? null : Number(hr),

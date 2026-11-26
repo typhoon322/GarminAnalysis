@@ -1,10 +1,15 @@
 [
   {
     "calendarDate": "2026-11-20",
-    "overallStressLevel": 28
+    "values": {
+      "overallStressLevel": 28,
+      "lowStressDuration": 100
+    }
   },
   {
     "calendarDate": "2026-11-21",
-    "overallStressLevel": 30
+    "values": {
+      "overallStressLevel": 30
+    }
   }
 ]

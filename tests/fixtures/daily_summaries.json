@@ -1,34 +1,46 @@
-[
-  {
-    "calendarDate": "2026-11-20",
-    "heartRate": {
-      "restingValue": 52,
-      "maxValue": 168
+{
+  "data": [
+    {
+      "calendarDate": "2026-11-20",
+      "includesWellnessData": true,
+      "movement": {
+        "steps": {
+          "goal": 7500,
+          "value": 9000,
+          "distanceInMeters": 7000.0
+        }
+      },
+      "heartRate": {
+        "restingValue": 52,
+        "maxValue": 168,
+        "minValue": 48
+      },
+      "stress": {
+        "avgLevel": 28
+      },
+      "bodyBattery": {
+        "latestValue": 61,
+        "endOfDayValue": 55
+      }
     },
-    "stress": {
-      "avgLevel": 28
-    },
-    "steps": {
-      "totalSteps": 9000
-    },
-    "bodyBattery": {
-      "latestValue": 61,
-      "endOfDayValue": 55
+    {
+      "calendarDate": "2026-11-21",
+      "includesWellnessData": true,
+      "movement": {
+        "steps": {
+          "goal": 7500,
+          "value": 8500
+        }
+      },
+      "heartRate": {
+        "restingValue": 50
+      },
+      "stress": {
+        "avgLevel": 30
+      },
+      "bodyBattery": {
+        "latestValue": 70
+      }
     }
-  },
-  {
-    "calendarDate": "2026-11-21",
-    "heartRate": {
-      "restingValue": 50
-    },
-    "stress": {
-      "avgLevel": 30
-    },
-    "steps": {
-      "totalSteps": 8500
-    },
-    "bodyBattery": {
-      "latestValue": 70
-    }
-  }
-]
+  ]
+}

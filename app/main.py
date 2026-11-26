@@ -161,6 +161,7 @@ def create_user(body: dict):
         display_name=str(body.get("display_name") or ""),
         personal_api_key=str(body.get("personal_api_key") or ""),
         label=str(body.get("label") or ""),
+        region=str(body.get("region") or "global"),
         sex=str(body.get("sex") or "unknown"),
         age=body.get("age"),
         hr_max=body.get("hr_max"),

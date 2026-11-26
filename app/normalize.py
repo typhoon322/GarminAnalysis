@@ -222,15 +222,25 @@ def _stress_fields(node: dict) -> dict:
     value = _first(node, ("overallStressLevel", "averageStressLevel", "avgStressLevel"))
     if value is None:
         value = _nested_num(node, ("stress", "avgLevel"))
+    if value is None:
+        # stats/stress/daily rows nest the level under values.
+        value = _nested_num(node, ("values", "overallStressLevel"))
     if value is None or value < 0 or value > 100:
         return {}
     return {"stress": value}
 
 
 def _steps_fields(node: dict) -> dict:
-    value = _first(node, ("totalSteps", "steps"))
+    value = _first(node, ("totalSteps",))
+    if value is None:
+        # Personal API daily summary V2: movement.steps.value
+        value = _nested_num(node, ("movement", "steps", "value"))
     if value is None:
         value = _nested_num(node, ("steps", "totalSteps"))
+    if value is None:
+        raw = node.get("steps")
+        if not isinstance(raw, dict):
+            value = _num(raw)
     if value is None or value < 0 or value > 200_000:
         return {}
     return {"steps": value}
