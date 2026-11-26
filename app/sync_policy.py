@@ -18,6 +18,12 @@ DAILY_CAP_BOUNDS = (1, 48)
 BACKFILL_DAYS = 90
 DELTA_OVERLAP_DAYS = 2
 
+# Light throttle for DeepSeek coach chat (not Garmin).
+DEFAULT_COACH_MIN_INTERVAL_SECONDS = 20
+DEFAULT_COACH_DAILY_CAP = 40
+COACH_INTERVAL_BOUNDS = (5, 600)
+COACH_DAILY_CAP_BOUNDS = (5, 200)
+
 
 def clamp_min_interval_minutes(value) -> int:
     try:
@@ -249,3 +255,64 @@ def next_sync_counters(
     if sync_day != today:
         return today, 1
     return today, count + 1
+
+
+def clamp_coach_interval_seconds(value) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = DEFAULT_COACH_MIN_INTERVAL_SECONDS
+    low, high = COACH_INTERVAL_BOUNDS
+    return max(low, min(high, number))
+
+
+def clamp_coach_daily_cap(value) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = DEFAULT_COACH_DAILY_CAP
+    low, high = COACH_DAILY_CAP_BOUNDS
+    return max(low, min(high, number))
+
+
+def evaluate_coach_rate_limit(
+    *,
+    last_coach_at: str | None,
+    coach_day: str | None,
+    coach_count_today: int,
+    min_interval_seconds: int = DEFAULT_COACH_MIN_INTERVAL_SECONDS,
+    daily_cap: int = DEFAULT_COACH_DAILY_CAP,
+    now: datetime | None = None,
+) -> dict:
+    moment = now or now_sh()
+    today = moment.astimezone(SHANGHAI).date().isoformat()
+    interval = clamp_coach_interval_seconds(min_interval_seconds)
+    cap = clamp_coach_daily_cap(daily_cap)
+    count = int(coach_count_today or 0)
+    if coach_day != today:
+        count = 0
+    cooldown = 0
+    last = _parse_iso(last_coach_at)
+    if last is not None:
+        elapsed = (moment - last).total_seconds()
+        if elapsed < interval:
+            cooldown = int(max(1, interval - elapsed))
+    over_daily = count >= cap
+    can_chat = cooldown <= 0 and not over_daily
+    message = ""
+    if not can_chat:
+        if cooldown > 0:
+            message = f"提问过快。请稍等约 {cooldown} 秒后再问教练。"
+        else:
+            message = f"今天教练对话次数已达上限（{cap} 次，按北京时间计）。请明天再试。"
+    return {
+        "can_chat": can_chat,
+        "rate_limited": not can_chat,
+        "cooldown_seconds": cooldown if not over_daily else 0,
+        "chats_today": count,
+        "coach_day": today,
+        "min_interval_seconds": interval,
+        "daily_cap": cap,
+        "last_coach_at": last_coach_at,
+        "message": message,
+    }

@@ -200,10 +200,82 @@
       height: calc(var(--nav-h) + var(--safe-bottom));
       padding: 0 0 var(--safe-bottom);
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       background: color-mix(in srgb, var(--surface) 94%, white);
       border-top: 1px solid var(--line);
       z-index: 20;
+    }
+    .chat-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: calc(100vh - 160px);
+    }
+    .chat-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .chat-toolbar p { margin: 0; font-size: 13px; }
+    #chat-log {
+      flex: 1 1 auto;
+      min-height: 280px;
+      max-height: min(58vh, 560px);
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 90%, white);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .chat-bubble {
+      max-width: 92%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: #dceee8;
+      border-color: #b4d4cb;
+    }
+    .chat-bubble.assistant {
+      align-self: flex-start;
+      background: #fff;
+    }
+    .chat-bubble .meta {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+    .chat-compose textarea {
+      width: 100%;
+      min-height: 88px;
+      resize: vertical;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font: inherit;
+    }
+    .chat-hints {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chat-hints button {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      min-height: 36px;
+      font-size: 13px;
     }
     .tabbar button {
       background: transparent;
@@ -248,6 +320,33 @@
       <div id="range-bar" class="range-bar" role="toolbar" aria-label="时间范围"></div>
       <div id="report">
         @@REPORT_HTML@@
+      </div>
+    </section>
+
+    <section id="panel-chat" class="panel" data-panel="chat" hidden>
+      <div class="chat-panel">
+        <div class="chat-toolbar">
+          <div>
+            <h2 style="margin:0 0 4px">教练对话</h2>
+            <p class="quiet" id="chat-status">基于本机压缩后的负荷与生理摘要提问。</p>
+          </div>
+          <button type="button" id="chat-clear" class="secondary">清空对话</button>
+        </div>
+        <div id="chat-banner" class="banner banner-sample" hidden></div>
+        <div id="chat-log" aria-live="polite"></div>
+        <div class="chat-hints" id="chat-hints">
+          <button type="button" data-prompt="根据我现在的状态，给我一个今天的训练计划。">今日计划</button>
+          <button type="button" data-prompt="结合近一周负荷和恢复，帮我排一个接下来 7 天的训练周计划。">一周计划</button>
+          <button type="button" data-prompt="我最近恢复怎么样？有没有需要减量或休息的信号？">恢复评估</button>
+        </div>
+        <div class="chat-compose">
+          <label for="chat-input">问教练</label>
+          <textarea id="chat-input" maxlength="2000" placeholder="例如：今天该练什么？这周怎么排？"></textarea>
+          <div class="actions">
+            <button type="button" id="chat-send">发送</button>
+          </div>
+          <p id="chat-msg" class="msg" role="status"></p>
+        </div>
       </div>
     </section>
 
@@ -332,6 +431,7 @@
 
   <nav class="tabbar" role="tablist" aria-label="主导航">
     <button type="button" id="tab-data" role="tab" aria-selected="true" aria-controls="panel-data">数据</button>
+    <button type="button" id="tab-chat" role="tab" aria-selected="false" aria-controls="panel-chat">教练</button>
     <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings">设置</button>
   </nav>
 
@@ -488,16 +588,117 @@
     }
 
     function showPanel(name) {
-      const data = document.getElementById("panel-data");
-      const settings = document.getElementById("panel-settings");
-      const tabData = document.getElementById("tab-data");
-      const tabSettings = document.getElementById("tab-settings");
-      const isData = name === "data";
-      data.hidden = !isData;
-      settings.hidden = isData;
-      tabData.setAttribute("aria-selected", isData ? "true" : "false");
-      tabSettings.setAttribute("aria-selected", isData ? "false" : "true");
-      if (isData) drawCharts();
+      const panels = {
+        data: document.getElementById("panel-data"),
+        chat: document.getElementById("panel-chat"),
+        settings: document.getElementById("panel-settings"),
+      };
+      const tabs = {
+        data: document.getElementById("tab-data"),
+        chat: document.getElementById("tab-chat"),
+        settings: document.getElementById("tab-settings"),
+      };
+      Object.keys(panels).forEach((key) => {
+        const active = key === name;
+        panels[key].hidden = !active;
+        tabs[key].setAttribute("aria-selected", active ? "true" : "false");
+      });
+      if (name === "data") drawCharts();
+      if (name === "chat") loadChat();
+    }
+
+    function renderChatMessages(messages) {
+      const host = document.getElementById("chat-log");
+      host.replaceChildren();
+      if (!messages || !messages.length) {
+        const empty = document.createElement("p");
+        empty.className = "quiet";
+        empty.textContent = "还没有对话。可以问今日计划或一周安排。";
+        host.append(empty);
+        return;
+      }
+      messages.forEach((item) => {
+        const bubble = document.createElement("div");
+        bubble.className = "chat-bubble " + (item.role === "user" ? "user" : "assistant");
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = (item.role === "user" ? "我" : "教练") + (item.at ? " · " + item.at : "");
+        const body = document.createElement("div");
+        body.textContent = item.content || "";
+        bubble.append(meta, body);
+        host.append(bubble);
+      });
+      host.scrollTop = host.scrollHeight;
+    }
+
+    function applyChatState(payload) {
+      boot.chat = payload || boot.chat || {};
+      const ready = !!(boot.chat && boot.chat.ready);
+      const banner = document.getElementById("chat-banner");
+      const status = document.getElementById("chat-status");
+      const sendBtn = document.getElementById("chat-send");
+      const input = document.getElementById("chat-input");
+      const coach = (boot.chat && boot.chat.coach) || {};
+      const policy = (boot.chat && boot.chat.coach_policy) || {};
+      let line = "基于本机压缩后的负荷与生理摘要提问（不含原始活动列表）。";
+      if (coach.min_interval_seconds || policy.min_interval_seconds) {
+        line += " 间隔约 " + (coach.min_interval_seconds || policy.min_interval_seconds || 20) + " 秒";
+        line += " · 今日 " + (coach.chats_today || 0) + "/" + (coach.daily_cap || policy.daily_cap || 40) + " 次。";
+      }
+      if (status) status.textContent = line;
+      if (banner) {
+        if (boot.chat && boot.chat.reason) {
+          banner.hidden = false;
+          banner.textContent = boot.chat.reason;
+          banner.className = "banner " + (boot.chat.sample || boot.chat.deepseek === "missing" ? "banner-sample" : "banner-real");
+        } else {
+          banner.hidden = true;
+          banner.textContent = "";
+        }
+      }
+      const blocked = !ready || !!(coach.rate_limited);
+      if (sendBtn) sendBtn.disabled = blocked;
+      if (input) input.disabled = !ready;
+      renderChatMessages((boot.chat && boot.chat.messages) || []);
+    }
+
+    async function loadChat() {
+      try {
+        const response = await fetch("/api/chat");
+        const data = await response.json();
+        applyChatState(data);
+      } catch (err) {
+        text("chat-msg", "加载对话失败。");
+      }
+    }
+
+    async function sendChat(message) {
+      const input = document.getElementById("chat-input");
+      const sendBtn = document.getElementById("chat-send");
+      const content = (message != null ? message : (input && input.value) || "").trim();
+      if (!content) {
+        text("chat-msg", "请先输入问题。");
+        return;
+      }
+      if (sendBtn) sendBtn.disabled = true;
+      text("chat-msg", "教练思考中…");
+      try {
+        const data = await post("/api/chat", {message: content});
+        applyChatState(data);
+        if (!data.ok) {
+          text("chat-msg", data.message || "没有得到回复。");
+          if (sendBtn) sendBtn.disabled = !!(data.ready === false);
+          return;
+        }
+        if (input) input.value = "";
+        text("chat-msg", "");
+      } catch (err) {
+        text("chat-msg", "发送失败。");
+      } finally {
+        if (sendBtn && boot.chat && boot.chat.ready && !(boot.chat.coach && boot.chat.coach.rate_limited)) {
+          sendBtn.disabled = false;
+        }
+      }
     }
 
     function renderRangeBar(report) {
@@ -737,7 +938,35 @@
     }
 
     document.getElementById("tab-data").addEventListener("click", () => showPanel("data"));
+    document.getElementById("tab-chat").addEventListener("click", () => showPanel("chat"));
     document.getElementById("tab-settings").addEventListener("click", () => showPanel("settings"));
+
+    document.getElementById("chat-send").addEventListener("click", () => sendChat());
+    document.getElementById("chat-input").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        sendChat();
+      }
+    });
+    document.getElementById("chat-clear").addEventListener("click", async () => {
+      if (!confirm("清空本机保存的教练对话？")) return;
+      try {
+        const response = await fetch("/api/chat", {method: "DELETE"});
+        const data = await response.json();
+        applyChatState(data);
+        text("chat-msg", "已清空对话。");
+      } catch (err) {
+        text("chat-msg", "清空失败。");
+      }
+    });
+    document.querySelectorAll("#chat-hints [data-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const prompt = button.getAttribute("data-prompt") || "";
+        const input = document.getElementById("chat-input");
+        if (input) input.value = prompt;
+        sendChat(prompt);
+      });
+    });
 
     document.getElementById("account-form").addEventListener("submit", async (event) => {
       event.preventDefault();

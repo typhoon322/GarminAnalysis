@@ -51,6 +51,7 @@ def test_report_and_home_render_sample_without_calling_the_model(client, monkeyp
     assert 'id="password"' not in page.text
     assert 'id="personal-api-key"' in page.text
     assert 'id="tab-data"' in page.text
+    assert 'id="tab-chat"' in page.text
     assert 'id="tab-settings"' in page.text
     assert 'id="range-bar"' in page.text
     assert 'id="sync-home"' in page.text

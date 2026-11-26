@@ -15,13 +15,20 @@ from pathlib import Path
 
 from app.clock import iso_sh
 from app.sync_policy import (
+    DEFAULT_COACH_DAILY_CAP,
+    DEFAULT_COACH_MIN_INTERVAL_SECONDS,
     DEFAULT_DAILY_CAP,
     DEFAULT_MIN_INTERVAL_MINUTES,
+    clamp_coach_daily_cap,
+    clamp_coach_interval_seconds,
     clamp_daily_cap,
     clamp_min_interval_minutes,
+    evaluate_coach_rate_limit,
     evaluate_rate_limit,
     next_sync_counters,
 )
+
+CHAT_HISTORY_CAP = 40
 
 ROOT = Path(__file__).resolve().parent.parent
 USER_ID = re.compile(r"^[a-f0-9]{32}$")
@@ -482,3 +489,119 @@ def record_sync_attempt(user_id: str, *, at: str | None = None) -> dict:
     user["updated_at"] = stamp
     save_secrets(data)
     return sync_state_for_user(user_id)
+
+
+def chat_path(user_id: str) -> Path:
+    return data_dir() / "cache" / assert_user_id(user_id) / "chat.json"
+
+
+def load_chat(user_id: str) -> dict:
+    path = chat_path(user_id)
+    if not path.is_file():
+        return {"messages": [], "updated_at": None}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StorageError("教练对话记录无法读取。") from exc
+    if not isinstance(data, dict):
+        raise StorageError("教练对话记录格式不对。")
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        messages = []
+    cleaned = []
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in {"user", "assistant"}:
+            continue
+        if not isinstance(content, str):
+            continue
+        cleaned.append(
+            {
+                "role": role,
+                "content": content,
+                "at": item.get("at") if isinstance(item.get("at"), str) else None,
+            }
+        )
+    return {"messages": cleaned[-CHAT_HISTORY_CAP:], "updated_at": data.get("updated_at")}
+
+
+def save_chat(user_id: str, messages: list[dict]) -> dict:
+    stamp = iso_sh()
+    payload = {"updated_at": stamp, "messages": list(messages)[-CHAT_HISTORY_CAP:]}
+    write_private_json(chat_path(user_id), payload)
+    return payload
+
+
+def clear_chat(user_id: str) -> None:
+    path = chat_path(user_id)
+    if path.exists():
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise StorageError("无法清除教练对话。") from exc
+
+
+def append_chat_turn(user_id: str, *, user_text: str, assistant_text: str) -> dict:
+    chat = load_chat(user_id)
+    stamp = iso_sh()
+    messages = list(chat.get("messages") or [])
+    messages.append({"role": "user", "content": user_text, "at": stamp})
+    messages.append({"role": "assistant", "content": assistant_text, "at": stamp})
+    return save_chat(user_id, messages)
+
+
+def get_coach_policy() -> dict:
+    data = load_secrets()
+    return {
+        "min_interval_seconds": clamp_coach_interval_seconds(
+            data.get("coach_min_interval_seconds", DEFAULT_COACH_MIN_INTERVAL_SECONDS)
+        ),
+        "daily_cap": clamp_coach_daily_cap(data.get("coach_daily_cap", DEFAULT_COACH_DAILY_CAP)),
+    }
+
+
+def coach_state_for_user(user_id: str | None) -> dict:
+    policy = get_coach_policy()
+    last_coach_at = None
+    coach_day = None
+    coach_count_today = 0
+    if user_id:
+        user_id = assert_user_id(user_id)
+        data = load_secrets()
+        user = data["users"].get(user_id) or {}
+        if isinstance(user, dict):
+            last_coach_at = user.get("last_coach_at")
+            coach_day = user.get("coach_day")
+            try:
+                coach_count_today = int(user.get("coach_count_today") or 0)
+            except (TypeError, ValueError):
+                coach_count_today = 0
+    return evaluate_coach_rate_limit(
+        last_coach_at=last_coach_at if isinstance(last_coach_at, str) else None,
+        coach_day=coach_day if isinstance(coach_day, str) else None,
+        coach_count_today=coach_count_today,
+        min_interval_seconds=policy["min_interval_seconds"],
+        daily_cap=policy["daily_cap"],
+    )
+
+
+def record_coach_attempt(user_id: str, *, at: str | None = None) -> dict:
+    user_id = assert_user_id(user_id)
+    data = load_secrets()
+    user = data["users"].get(user_id)
+    if not isinstance(user, dict):
+        raise StorageError("没有这个账号。")
+    stamp = at or iso_sh()
+    day, count = next_sync_counters(
+        sync_day=user.get("coach_day") if isinstance(user.get("coach_day"), str) else None,
+        sync_count_today=int(user.get("coach_count_today") or 0),
+    )
+    user["last_coach_at"] = stamp
+    user["coach_day"] = day
+    user["coach_count_today"] = count
+    user["updated_at"] = stamp
+    save_secrets(data)
+    return coach_state_for_user(user_id)

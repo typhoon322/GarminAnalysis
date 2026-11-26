@@ -10,8 +10,19 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 
 from app import garmin_sync, storage
 from app.analysis import analyze, normalize_range_key
+from app.chat_context import build_chat_context
 from app.clock import iso_sh
-from app.coach import coaching_for, offline_coaching
+from app.coach import (
+    CHAT_EMPTY_REASON,
+    CHAT_FAILED_REASON,
+    CHAT_MISSING_REASON,
+    CHAT_SAMPLE_REASON,
+    CoachError,
+    chat_complete,
+    coaching_for,
+    offline_coaching,
+    sanitize_user_message,
+)
 from app.preview import metric_domains, render_report_html
 from app.sample_data import build_sample_bundle
 
@@ -66,6 +77,9 @@ def _status(view: dict | None = None) -> dict:
         "generated_at": iso_sh(),
         "sync": sync,
         "sync_policy": storage.get_sync_policy(),
+        "deepseek_ready": storage.deepseek_source() != "missing",
+        "coach": storage.coach_state_for_user(user["id"] if user else None),
+        "coach_policy": storage.get_coach_policy(),
     }
 
 
@@ -254,6 +268,105 @@ def sync():
     # Always refresh rate-limit status for the UI after a sync attempt.
     public["sync"] = storage.sync_state_for_user(user["id"])
     return public
+
+
+def _public_chat(user_id: str | None) -> dict:
+    messages = []
+    if user_id:
+        messages = storage.load_chat(user_id).get("messages") or []
+    coach = storage.coach_state_for_user(user_id)
+    deepseek = storage.deepseek_source()
+    view = _view()
+    sample = bool(view["bundle"].get("sample"))
+    ready = (not sample) and deepseek != "missing" and bool(user_id)
+    reason = None
+    if sample:
+        reason = CHAT_SAMPLE_REASON
+    elif not user_id:
+        reason = "还没有当前配置。请先在设置里保存 Personal API Key。"
+    elif deepseek == "missing":
+        reason = CHAT_MISSING_REASON
+    return {
+        "ok": True,
+        "messages": messages,
+        "ready": ready,
+        "reason": reason,
+        "sample": sample,
+        "deepseek": deepseek,
+        "coach": coach,
+        "coach_policy": storage.get_coach_policy(),
+    }
+
+
+@app.get("/api/chat")
+def chat_history():
+    user = storage.active_user()
+    return _public_chat(user["id"] if user else None)
+
+
+@app.delete("/api/chat")
+def chat_clear():
+    user = storage.active_user()
+    if not user:
+        raise storage.StorageError("还没有当前配置。")
+    storage.clear_chat(user["id"])
+    return _public_chat(user["id"])
+
+
+@app.post("/api/chat")
+def chat_send(body: dict):
+    if not isinstance(body, dict):
+        raise storage.StorageError("请求格式不对。")
+    user = storage.active_user()
+    if not user:
+        raise storage.StorageError("还没有当前配置。先在设置里保存 Personal API Key。")
+    message = sanitize_user_message(str(body.get("message") or ""))
+    if not message:
+        raise storage.StorageError("请先输入问题。")
+
+    view = _view()
+    sample = bool(view["bundle"].get("sample"))
+    api_key = storage.get_api_key()
+    public = _public_chat(user["id"])
+    if sample:
+        return {**public, "ok": False, "message": CHAT_SAMPLE_REASON}
+    if not api_key:
+        return {**public, "ok": False, "message": CHAT_MISSING_REASON}
+
+    coach_state = storage.coach_state_for_user(user["id"])
+    if coach_state.get("rate_limited"):
+        return {
+            **public,
+            "ok": False,
+            "message": coach_state.get("message") or "提问过快。",
+            "rate_limited": True,
+            "coach": coach_state,
+        }
+
+    context = build_chat_context(view["bundle"])
+    history = storage.load_chat(user["id"]).get("messages") or []
+    # Count the attempt before the network call so retries cannot spam.
+    storage.record_coach_attempt(user["id"])
+    try:
+        reply = chat_complete(api_key, context=context, history=history, user_message=message)
+    except CoachError as exc:
+        detail = str(exc)
+        if detail == "请求失败":
+            fail_message = CHAT_FAILED_REASON
+        elif detail.startswith("HTTP"):
+            fail_message = f"教练回复失败（{detail}）。本地报告仍然可用。"
+        else:
+            fail_message = detail if detail else CHAT_FAILED_REASON
+        return {**_public_chat(user["id"]), "ok": False, "message": fail_message}
+    except Exception:
+        return {**_public_chat(user["id"]), "ok": False, "message": CHAT_FAILED_REASON}
+
+    if not reply:
+        return {**_public_chat(user["id"]), "ok": False, "message": CHAT_EMPTY_REASON}
+
+    storage.append_chat_turn(user["id"], user_text=message, assistant_text=reply)
+    public = _public_chat(user["id"])
+    return {**public, "ok": True, "reply": reply, "message": "已回复"}
 
 
 @app.get("/static/plotly.min.js")
