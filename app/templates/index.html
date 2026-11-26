@@ -336,26 +336,31 @@
           <button type="button" id="chat-clear" class="secondary">清空对话</button>
         </div>
         <div id="chat-banner" class="banner banner-sample" hidden></div>
-        <details class="block methods" id="chat-profile-box">
-          <summary>个人描述（本机）</summary>
-          <p class="quiet">只保存在本机；发给教练时只会带截断后的短文本，不会带密钥。</p>
-          <label for="chat-goals">训练目标</label>
-          <textarea id="chat-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
-          <label for="chat-sports">偏好运动</label>
-          <input id="chat-sports" maxlength="200" placeholder="跑步、骑行…">
-          <label for="chat-availability">可训练时间</label>
-          <textarea id="chat-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
-          <label for="chat-injuries">伤病与限制</label>
-          <textarea id="chat-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
-          <label for="chat-feelings">主观感受 / RPE 笔记</label>
-          <textarea id="chat-feelings" maxlength="600" rows="2" placeholder="本周腿沉、睡眠一般…"></textarea>
-          <label for="chat-about">对我的描述</label>
-          <textarea id="chat-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
-          <div class="actions">
-            <button type="button" id="chat-save-profile">保存个人描述</button>
-          </div>
-          <p id="chat-profile-msg" class="msg" role="status"></p>
-        </details>
+        <div class="block" id="chat-profile-box">
+          <h2 style="margin-top:0">个人画像</h2>
+          <p class="quiet" id="chat-profile-hint">默认由对话自动维护：聊天里提到的目标、感受、伤病与 RPE 会写入本机时间线，无需填表。</p>
+          <ul id="chat-timeline" class="notes"></ul>
+          <details class="methods">
+            <summary>可选：手动改画像</summary>
+            <p class="quiet">一般不用填。需要时再改；保存会记一条手动时间线。</p>
+            <label for="chat-goals">训练目标</label>
+            <textarea id="chat-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
+            <label for="chat-sports">偏好运动</label>
+            <input id="chat-sports" maxlength="200" placeholder="跑步、骑行…">
+            <label for="chat-availability">可训练时间</label>
+            <textarea id="chat-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
+            <label for="chat-injuries">伤病与限制</label>
+            <textarea id="chat-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
+            <label for="chat-feelings">主观感受 / RPE 笔记</label>
+            <textarea id="chat-feelings" maxlength="600" rows="2" placeholder="本周腿沉、睡眠一般…"></textarea>
+            <label for="chat-about">对我的描述</label>
+            <textarea id="chat-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
+            <div class="actions">
+              <button type="button" id="chat-save-profile" class="secondary">手动保存</button>
+            </div>
+            <p id="chat-profile-msg" class="msg" role="status"></p>
+          </details>
+        </div>
         <div id="chat-log" aria-live="polite"></div>
         <div class="chat-hints" id="chat-hints">
           <button type="button" data-prompt="根据我现在的状态，给我一个今天的训练计划。">今日计划</button>
@@ -414,24 +419,28 @@
       </form>
 
       <div class="settings-block" id="athlete-settings">
-        <h2>个人描述</h2>
-        <p class="quiet">目标、偏好、可用时间、伤病限制与主观感受。只写在本机 <code>data/cache/&lt;配置&gt;/athlete_profile.json</code>；问教练时注入截断摘要。</p>
-        <label for="set-goals">训练目标</label>
-        <textarea id="set-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
-        <label for="set-sports">偏好运动</label>
-        <input id="set-sports" maxlength="200" placeholder="跑步、骑行…">
-        <label for="set-availability">可训练时间</label>
-        <textarea id="set-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
-        <label for="set-injuries">伤病与限制</label>
-        <textarea id="set-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
-        <label for="set-feelings">主观感受 / RPE 笔记</label>
-        <textarea id="set-feelings" maxlength="600" rows="3" placeholder="本周腿沉、睡眠一般…"></textarea>
-        <label for="set-about">对我的描述</label>
-        <textarea id="set-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
-        <div class="actions">
-          <button type="button" id="save-athlete-profile">保存个人描述</button>
-        </div>
-        <p id="athlete-msg" class="msg" role="status"></p>
+        <h2>个人画像</h2>
+        <p class="quiet">默认在「教练」对话里自动抽取并写入本机 <code>athlete_profile.json</code>（含时间线）。这里只是可选手动覆盖。</p>
+        <ul id="set-timeline" class="notes"></ul>
+        <details class="methods">
+          <summary>可选：手动编辑</summary>
+          <label for="set-goals">训练目标</label>
+          <textarea id="set-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
+          <label for="set-sports">偏好运动</label>
+          <input id="set-sports" maxlength="200" placeholder="跑步、骑行…">
+          <label for="set-availability">可训练时间</label>
+          <textarea id="set-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
+          <label for="set-injuries">伤病与限制</label>
+          <textarea id="set-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
+          <label for="set-feelings">主观感受 / RPE 笔记</label>
+          <textarea id="set-feelings" maxlength="600" rows="3" placeholder="本周腿沉、睡眠一般…"></textarea>
+          <label for="set-about">对我的描述</label>
+          <textarea id="set-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
+          <div class="actions">
+            <button type="button" id="save-athlete-profile" class="secondary">手动保存</button>
+          </div>
+          <p id="athlete-msg" class="msg" role="status"></p>
+        </details>
       </div>
 
       <div class="settings-block">
@@ -675,6 +684,25 @@
       host.scrollTop = host.scrollHeight;
     }
 
+    function renderTimeline(hostId, profile) {
+      const host = document.getElementById(hostId);
+      if (!host) return;
+      host.replaceChildren();
+      const items = (profile && profile.timeline) || [];
+      if (!items.length) {
+        const li = document.createElement("li");
+        li.textContent = "还没有时间线条目。和教练聊天提到感受或目标后会自动出现。";
+        host.append(li);
+        return;
+      }
+      items.slice().reverse().slice(0, 8).forEach((item) => {
+        const li = document.createElement("li");
+        const src = item.source === "manual" ? "手动" : "对话";
+        li.textContent = (item.at || "") + " · " + src + " · " + (item.note || "");
+        host.append(li);
+      });
+    }
+
     function fillAthleteProfile(profile) {
       const data = profile || {};
       const map = [
@@ -693,6 +721,13 @@
         if (chatNode && document.activeElement !== chatNode) chatNode.value = value;
       });
       boot.athlete_profile = data;
+      renderTimeline("chat-timeline", data);
+      renderTimeline("set-timeline", data);
+      const hint = document.getElementById("chat-profile-hint");
+      if (hint) {
+        const src = data.source === "manual" ? "最近一次为手动保存" : (data.source === "ai" ? "最近一次由对话自动更新" : "尚未建立");
+        hint.textContent = "默认由对话自动维护（" + src + "）。聊天里提到的目标、感受、伤病与 RPE 会写入本机时间线。";
+      }
     }
 
     function readAthleteProfile(prefix) {
@@ -789,7 +824,7 @@
           return;
         }
         if (input) input.value = "";
-        text("chat-msg", "");
+        text("chat-msg", data.profile_updated ? "已回复，并更新了本机个人画像。" : "");
       } catch (err) {
         text("chat-msg", "发送失败。");
       } finally {

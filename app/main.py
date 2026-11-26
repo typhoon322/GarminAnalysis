@@ -10,7 +10,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 
 from app import garmin_sync, storage
 from app.analysis import analyze, normalize_range_key
-from app.athlete_profile import apply_athlete_profile_update, public_athlete_profile
+from app.athlete_profile import (
+    apply_athlete_profile_update,
+    merge_ai_extraction,
+    public_athlete_profile,
+    split_coach_reply,
+)
 from app.chat_context import build_chat_context
 from app.clock import iso_sh
 from app.coach import (
@@ -356,7 +361,7 @@ def chat_send(body: dict):
     # Count the attempt before the network call so retries cannot spam.
     storage.record_coach_attempt(user["id"])
     try:
-        reply = chat_complete(api_key, context=context, history=history, user_message=message)
+        raw_reply = chat_complete(api_key, context=context, history=history, user_message=message)
     except CoachError as exc:
         detail = str(exc)
         if detail == "请求失败":
@@ -369,12 +374,25 @@ def chat_send(body: dict):
     except Exception:
         return {**_public_chat(user["id"]), "ok": False, "message": CHAT_FAILED_REASON}
 
+    reply, extraction = split_coach_reply(raw_reply)
     if not reply:
         return {**_public_chat(user["id"]), "ok": False, "message": CHAT_EMPTY_REASON}
 
+    profile_updated = False
+    merged = merge_ai_extraction(athlete, extraction)
+    if merged is not None:
+        storage.save_athlete_profile(user["id"], merged)
+        profile_updated = True
+
     storage.append_chat_turn(user["id"], user_text=message, assistant_text=reply)
     public = _public_chat(user["id"])
-    return {**public, "ok": True, "reply": reply, "message": "已回复"}
+    return {
+        **public,
+        "ok": True,
+        "reply": reply,
+        "profile_updated": profile_updated,
+        "message": "已回复" + ("，并更新了本机个人画像" if profile_updated else ""),
+    }
 
 
 @app.get("/api/athlete-profile")
@@ -399,7 +417,11 @@ def athlete_profile_save(body: dict):
     current = storage.load_athlete_profile(user["id"])
     updated = apply_athlete_profile_update(current, body)
     public = storage.save_athlete_profile(user["id"], updated)
-    return {"ok": True, "athlete_profile": public, "message": "个人描述已保存在本机。"}
+    return {
+        "ok": True,
+        "athlete_profile": public,
+        "message": "个人描述已手动保存在本机（默认仍由教练对话自动维护）。",
+    }
 
 
 @app.get("/static/plotly.min.js")

@@ -422,25 +422,26 @@ def athlete_profile_path(user_id: str) -> Path:
 
 
 def load_athlete_profile(user_id: str) -> dict:
-    from app.athlete_profile import normalize_athlete_profile
+    """Return the full store {current, timeline} for a profile."""
+    from app.athlete_profile import empty_store, normalize_store
 
     path = athlete_profile_path(user_id)
     if not path.is_file():
-        return normalize_athlete_profile(None)
+        return empty_store()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise StorageError("个人描述文件无法读取。") from exc
     if not isinstance(data, dict):
         raise StorageError("个人描述文件格式不对。")
-    return normalize_athlete_profile(data)
+    return normalize_store(data)
 
 
 def save_athlete_profile(user_id: str, profile: dict) -> dict:
-    from app.athlete_profile import normalize_athlete_profile, public_athlete_profile
+    from app.athlete_profile import normalize_store, public_athlete_profile
 
     user_id = assert_user_id(user_id)
-    cleaned = normalize_athlete_profile(profile)
+    cleaned = normalize_store(profile)
     write_private_json(athlete_profile_path(user_id), cleaned)
     return public_athlete_profile(cleaned)
 

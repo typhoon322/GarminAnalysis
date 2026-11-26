@@ -14,7 +14,7 @@ from app.clock import iso_sh, today_sh
 RECENT_SESSIONS_CAP = 5
 CONTEXT_DOC = (
     "本上下文已压缩：只含负荷/生理聚合、近7天与近28天量、警报、最多 "
-    f"{RECENT_SESSIONS_CAP} 条最近课次的标题与负荷，以及可选的本机个人描述短文本。"
+    f"{RECENT_SESSIONS_CAP} 条最近课次的标题与负荷，以及本机个人画像最新摘要与近期时间线。"
     "不含原始活动列表、不含逐日全序列、不含账号/密码/API Key。"
 )
 
