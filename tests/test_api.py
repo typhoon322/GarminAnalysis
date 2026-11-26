@@ -53,6 +53,8 @@ def test_report_and_home_render_sample_without_calling_the_model(client, monkeyp
     assert 'id="tab-data"' in page.text
     assert 'id="tab-settings"' in page.text
     assert 'id="range-bar"' in page.text
+    assert 'id="sync-home"' in page.text
+    assert 'id="sync-bar"' in page.text
     assert "训练负荷" in page.text
     assert "恢复" in page.text
 
@@ -113,6 +115,52 @@ def test_sync_result_is_public_only():
     public = public_sync_result({"ok": False, "message": "失败", "bundle": {"secret": 1}})
     assert public == {"ok": False, "message": "失败"}
     assert "secret" not in json.dumps(public)
+
+
+def test_sync_policy_endpoint_and_status(client):
+    client.post(
+        "/api/users",
+        json={"display_name": "限流配置", "personal_api_key": "rate-limit-key"},
+    )
+    saved = client.post(
+        "/api/settings/sync",
+        json={"min_interval_minutes": 25, "daily_cap": 8},
+    )
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["ok"] is True
+    assert body["sync_policy"]["min_interval_minutes"] == 25
+    assert body["sync_policy"]["daily_cap"] == 8
+    status = client.get("/api/status").json()
+    assert status["sync_policy"]["min_interval_minutes"] == 25
+    assert status["sync"]["can_sync"] is True
+    assert "cooldown_seconds" in status["sync"]
+
+
+def test_sync_rate_limit_returns_chinese_error_without_calling_garmin(client, monkeypatch):
+    calls = {"n": 0}
+
+    def boom(*_args, **_kwargs):
+        calls["n"] += 1
+        raise AssertionError("garmin should not be called while rate limited")
+
+    client.post(
+        "/api/users",
+        json={"display_name": "限流用户", "personal_api_key": "rate-key"},
+    )
+    user = storage.active_user()
+    storage.record_sync_attempt(user["id"], at="2026-11-26T21:50:00+08:00")
+    client.post("/api/settings/sync", json={"min_interval_minutes": 30, "daily_cap": 12})
+    monkeypatch.setattr("app.garmin_sync.obtain_access_token", boom)
+    monkeypatch.delenv("GARMIN_FITNESS_DISABLE_NETWORK", raising=False)
+    response = client.post("/api/sync")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body.get("rate_limited") is True
+    assert "过于频繁" in body["message"]
+    assert calls["n"] == 0
+    assert "rate-key" not in response.text
 
 
 def test_sample_coach_endpoint_never_calls_deepseek(client, monkeypatch):

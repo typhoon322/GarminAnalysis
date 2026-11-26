@@ -14,6 +14,14 @@ import uuid
 from pathlib import Path
 
 from app.clock import iso_sh
+from app.sync_policy import (
+    DEFAULT_DAILY_CAP,
+    DEFAULT_MIN_INTERVAL_MINUTES,
+    clamp_daily_cap,
+    clamp_min_interval_minutes,
+    evaluate_rate_limit,
+    next_sync_counters,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 USER_ID = re.compile(r"^[a-f0-9]{32}$")
@@ -97,7 +105,13 @@ def secrets_path() -> Path:
 
 
 def _empty_secrets() -> dict:
-    return {"deepseek_api_key": "", "active_user_id": None, "users": {}}
+    return {
+        "deepseek_api_key": "",
+        "active_user_id": None,
+        "users": {},
+        "sync_min_interval_minutes": DEFAULT_MIN_INTERVAL_MINUTES,
+        "sync_daily_cap": DEFAULT_DAILY_CAP,
+    }
 
 
 def load_secrets() -> dict:
@@ -114,6 +128,10 @@ def load_secrets() -> dict:
         raise StorageError("data/secrets.json 格式不对，已停止写入以免覆盖。")
     data.setdefault("deepseek_api_key", "")
     data.setdefault("active_user_id", None)
+    data["sync_min_interval_minutes"] = clamp_min_interval_minutes(
+        data.get("sync_min_interval_minutes", DEFAULT_MIN_INTERVAL_MINUTES)
+    )
+    data["sync_daily_cap"] = clamp_daily_cap(data.get("sync_daily_cap", DEFAULT_DAILY_CAP))
     if not isinstance(data.get("users"), dict):
         data["users"] = {}
     return data
@@ -390,3 +408,77 @@ def load_bundle(user_id: str) -> dict | None:
 
 def save_bundle(user_id: str, bundle: dict) -> None:
     write_private_json(bundle_path(user_id), bundle)
+
+
+def get_sync_policy() -> dict:
+    data = load_secrets()
+    return {
+        "min_interval_minutes": clamp_min_interval_minutes(
+            data.get("sync_min_interval_minutes", DEFAULT_MIN_INTERVAL_MINUTES)
+        ),
+        "daily_cap": clamp_daily_cap(data.get("sync_daily_cap", DEFAULT_DAILY_CAP)),
+    }
+
+
+def set_sync_policy(*, min_interval_minutes=None, daily_cap=None) -> dict:
+    data = load_secrets()
+    if min_interval_minutes is not None:
+        data["sync_min_interval_minutes"] = clamp_min_interval_minutes(min_interval_minutes)
+    if daily_cap is not None:
+        data["sync_daily_cap"] = clamp_daily_cap(daily_cap)
+    save_secrets(data)
+    return get_sync_policy()
+
+
+def sync_state_for_user(user_id: str | None) -> dict:
+    """Public sync status for the UI (no secrets)."""
+    policy = get_sync_policy()
+    last_sync_at = None
+    sync_day = None
+    sync_count_today = 0
+    if user_id:
+        user_id = assert_user_id(user_id)
+        data = load_secrets()
+        user = data["users"].get(user_id) or {}
+        if isinstance(user, dict):
+            last_sync_at = user.get("last_sync_at")
+            sync_day = user.get("sync_day")
+            try:
+                sync_count_today = int(user.get("sync_count_today") or 0)
+            except (TypeError, ValueError):
+                sync_count_today = 0
+        bundle = None
+        try:
+            bundle = load_bundle(user_id)
+        except StorageError:
+            bundle = None
+        if not last_sync_at and isinstance(bundle, dict):
+            last_sync_at = bundle.get("fetched_at")
+    status = evaluate_rate_limit(
+        last_sync_at=last_sync_at if isinstance(last_sync_at, str) else None,
+        sync_day=sync_day if isinstance(sync_day, str) else None,
+        sync_count_today=sync_count_today,
+        min_interval_minutes=policy["min_interval_minutes"],
+        daily_cap=policy["daily_cap"],
+    )
+    return status
+
+
+def record_sync_attempt(user_id: str, *, at: str | None = None) -> dict:
+    """Mark that we hit Garmin for this user (counts toward rate limits)."""
+    user_id = assert_user_id(user_id)
+    data = load_secrets()
+    user = data["users"].get(user_id)
+    if not isinstance(user, dict):
+        raise StorageError("没有这个账号。")
+    stamp = at or iso_sh()
+    day, count = next_sync_counters(
+        sync_day=user.get("sync_day") if isinstance(user.get("sync_day"), str) else None,
+        sync_count_today=int(user.get("sync_count_today") or 0),
+    )
+    user["last_sync_at"] = stamp
+    user["sync_day"] = day
+    user["sync_count_today"] = count
+    user["updated_at"] = stamp
+    save_secrets(data)
+    return sync_state_for_user(user_id)

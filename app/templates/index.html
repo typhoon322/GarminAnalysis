@@ -125,6 +125,29 @@
       border-color: var(--accent);
       color: var(--accent-ink);
     }
+    .sync-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, #dceee8 70%, white);
+    }
+    .sync-bar .sync-meta { flex: 1 1 180px; min-width: 0; }
+    .sync-bar .sync-meta p { margin: 0; font-size: 13px; }
+    .sync-bar .sync-meta .quiet { margin-top: 2px; }
+    .sync-bar #sync-home {
+      flex: 0 0 auto;
+      min-width: 120px;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    .sync-bar #sync-home-msg { width: 100%; margin: 0; min-height: 0; }
+    .sync-bar #sync-home-msg:empty { display: none; }
     .metrics {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -214,6 +237,14 @@
     </header>
 
     <section id="panel-data" class="panel" data-panel="data">
+      <div class="sync-bar" id="sync-bar">
+        <div class="sync-meta">
+          <p id="sync-last">尚未同步</p>
+          <p class="quiet" id="sync-limit-hint">最短间隔 20 分钟 · 每日最多 12 次</p>
+        </div>
+        <button type="button" id="sync-home">同步</button>
+        <p id="sync-home-msg" class="msg" role="status"></p>
+      </div>
       <div id="range-bar" class="range-bar" role="toolbar" aria-label="时间范围"></div>
       <div id="report">
         @@REPORT_HTML@@
@@ -275,8 +306,21 @@
           <button type="button" id="clear-key" class="secondary">清除密钥</button>
         </div>
         <p id="key-status" class="quiet"></p>
+        <h2>同步频率限制</h2>
+        <p class="quiet">避免短时间反复请求佳明接口。首次同步回填约 90 天；之后只拉最近增量并合并到本机缓存。</p>
+        <div class="row">
+          <div>
+            <label for="sync-interval">最短间隔（分钟）</label>
+            <input id="sync-interval" type="number" min="5" max="180" step="1" value="20">
+          </div>
+          <div>
+            <label for="sync-daily-cap">每日上限（次）</label>
+            <input id="sync-daily-cap" type="number" min="1" max="48" step="1" value="12">
+          </div>
+        </div>
         <div class="actions">
-          <button type="button" id="sync">从佳明同步最近 90 天</button>
+          <button type="button" id="save-sync-policy">保存同步限制</button>
+          <button type="button" id="sync" class="secondary">立即同步</button>
         </div>
         <p id="sync-msg" class="msg" role="status"></p>
         <p class="quiet">密钥写在 <code id="data-dir"></code>，权限 0600。</p>
@@ -361,6 +405,86 @@
       if (source === "file") return "DeepSeek 密钥已写在本机。";
       if (source === "env") return "正在使用环境变量里的 DeepSeek 密钥。";
       return "还没有 DeepSeek 密钥。本地报告仍可用。";
+    }
+
+    function formatCooldown(seconds) {
+      const total = Math.max(0, Number(seconds) || 0);
+      if (total <= 0) return "";
+      const minutes = Math.floor(total / 60);
+      const secs = total % 60;
+      if (minutes <= 0) return secs + " 秒";
+      if (secs === 0) return minutes + " 分钟";
+      return minutes + " 分 " + secs + " 秒";
+    }
+
+    function applySyncStatus(status) {
+      const sync = (status && status.sync) || {};
+      const policy = (status && status.sync_policy) || sync || {};
+      const interval = policy.min_interval_minutes != null ? policy.min_interval_minutes : 20;
+      const cap = policy.daily_cap != null ? policy.daily_cap : 12;
+      const last = sync.last_sync_at || status.last_sync;
+      const lastNode = document.getElementById("sync-last");
+      const hintNode = document.getElementById("sync-limit-hint");
+      const homeBtn = document.getElementById("sync-home");
+      const settingsBtn = document.getElementById("sync");
+      if (lastNode) {
+        lastNode.textContent = last ? ("上次同步 " + last + "（北京时间）") : "尚未同步";
+      }
+      let hint = "最短间隔 " + interval + " 分钟 · 今日 " + (sync.syncs_today || 0) + "/" + cap + " 次";
+      if (sync.rate_limited && sync.cooldown_seconds > 0) {
+        hint += " · 冷却还剩 " + formatCooldown(sync.cooldown_seconds);
+      } else if (sync.rate_limited) {
+        hint += " · 今日已达上限";
+      }
+      if (hintNode) hintNode.textContent = hint;
+      const blocked = !!sync.rate_limited;
+      if (homeBtn) {
+        homeBtn.disabled = blocked;
+        homeBtn.textContent = blocked
+          ? (sync.cooldown_seconds > 0 ? ("冷却 " + formatCooldown(sync.cooldown_seconds)) : "今日已达上限")
+          : "同步";
+      }
+      if (settingsBtn) settingsBtn.disabled = blocked;
+      const intervalInput = document.getElementById("sync-interval");
+      const capInput = document.getElementById("sync-daily-cap");
+      if (intervalInput && document.activeElement !== intervalInput) intervalInput.value = String(interval);
+      if (capInput && document.activeElement !== capInput) capInput.value = String(cap);
+      return sync;
+    }
+
+    async function runSync(messageId) {
+      const homeBtn = document.getElementById("sync-home");
+      const settingsBtn = document.getElementById("sync");
+      const targets = [homeBtn, settingsBtn].filter(Boolean);
+      targets.forEach((btn) => { btn.disabled = true; });
+      text("sync-home-msg", "正在同步（增量合并本机缓存）…");
+      text("sync-msg", "正在同步（增量合并本机缓存）…");
+      try {
+        const data = await post("/api/sync", {});
+        if (data.sync) {
+          boot.status = boot.status || {};
+          boot.status.sync = data.sync;
+          boot.status.sync_policy = {
+            min_interval_minutes: data.sync.min_interval_minutes,
+            daily_cap: data.sync.daily_cap,
+          };
+          if (data.sync.last_sync_at) boot.status.last_sync = data.sync.last_sync_at;
+          applySyncStatus(boot.status);
+        }
+        if (!data.ok) {
+          text("sync-home-msg", data.message || "同步没有成功。");
+          text("sync-msg", data.message || "同步没有成功。");
+          targets.forEach((btn) => { btn.disabled = false; });
+          applySyncStatus(boot.status);
+          return;
+        }
+        location.href = "/?range=" + encodeURIComponent(currentRange);
+      } catch (err) {
+        text("sync-home-msg", "同步请求失败。");
+        text("sync-msg", "同步请求失败。");
+        targets.forEach((btn) => { btn.disabled = false; });
+        applySyncStatus(boot.status);
+      }
     }
 
     function showPanel(name) {
@@ -664,28 +788,32 @@
       location.reload();
     });
 
-    document.getElementById("sync").addEventListener("click", async () => {
-      const button = document.getElementById("sync");
-      button.disabled = true;
-      text("sync-msg", "正在同步最近 90 天…");
-      try {
-        const data = await post("/api/sync", {});
-        if (!data.ok) {
-          text("sync-msg", data.message || "同步没有成功。");
-          button.disabled = false;
-          return;
-        }
-        location.href = "/?range=" + encodeURIComponent(currentRange);
-      } catch (err) {
-        text("sync-msg", "同步请求失败。");
-        button.disabled = false;
+    document.getElementById("sync-home").addEventListener("click", () => runSync("sync-home-msg"));
+    document.getElementById("sync").addEventListener("click", () => runSync("sync-msg"));
+
+    document.getElementById("save-sync-policy").addEventListener("click", async () => {
+      text("sync-msg", "正在保存同步限制…");
+      const data = await post("/api/settings/sync", {
+        min_interval_minutes: Number(document.getElementById("sync-interval").value),
+        daily_cap: Number(document.getElementById("sync-daily-cap").value),
+      });
+      if (!data.ok) {
+        text("sync-msg", data.message || "没有保存。");
+        return;
       }
+      boot.status = boot.status || {};
+      boot.status.sync_policy = data.sync_policy;
+      boot.status.sync = data.sync;
+      applySyncStatus(boot.status);
+      text("sync-msg", data.message || "已保存。");
+      text("sync-home-msg", "");
     });
 
     renderWho(boot.status);
     fillUsers(boot.status);
     text("key-status", keyText(boot.status.deepseek));
     text("data-dir", boot.status.data_dir);
+    applySyncStatus(boot.status || {});
     renderRangeBar(currentReport || {available_ranges: [], range: currentRange});
     drawCharts();
     loadCoach();

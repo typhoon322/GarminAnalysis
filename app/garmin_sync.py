@@ -29,8 +29,14 @@ from app.normalize import (
     apply_training,
     normalize_activities,
 )
+from app.sync_policy import (
+    BACKFILL_DAYS,
+    DELTA_OVERLAP_DAYS,
+    merge_bundles,
+    sync_window,
+)
 
-SYNC_DAYS = 90
+SYNC_DAYS = BACKFILL_DAYS
 BASE_URL_GLOBAL = "https://personal.connectapi.garmin.com"
 BASE_URL_CN = "https://personal.connectapi.garmin.cn"
 # Back-compat alias used by tests and callers.
@@ -73,10 +79,26 @@ def _ok(bundle: dict, message: str) -> dict:
 
 def public_sync_result(result: dict) -> dict:
     """Strip anything that must not reach the browser."""
-    return {
+    payload = {
         "ok": bool(result.get("ok")),
         "message": result.get("message") or "",
     }
+    for key in (
+        "rate_limited",
+        "retry_after_seconds",
+        "cooldown_seconds",
+        "last_sync_at",
+        "sync_mode",
+        "sync_start",
+        "sync_end",
+        "min_interval_minutes",
+        "daily_cap",
+        "syncs_today",
+        "can_sync",
+    ):
+        if key in result:
+            payload[key] = result[key]
+    return payload
 
 
 def _blocked() -> dict | None:
@@ -336,9 +358,20 @@ def _newest_activity_date(client: PersonalApiClient, secrets: list[str]) -> str 
     return dates[-1] if dates else None
 
 
-def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> tuple[dict, list[str]]:
-    end = today_sh()
-    start = end - timedelta(days=SYNC_DAYS - 1)
+def fetch_bundle(
+    client: PersonalApiClient,
+    user: dict,
+    secrets: list[str],
+    *,
+    start: date | None = None,
+    end: date | None = None,
+    sync_mode: str = "backfill",
+) -> tuple[dict, list[str]]:
+    end = end or today_sh()
+    start = start or (end - timedelta(days=SYNC_DAYS - 1))
+    if start > end:
+        start = end
+    window_days = (end - start).days + 1
     warnings: list[str] = []
 
     activities_payload, act_warnings = fetch_activities(client, secrets, start, end)
@@ -429,9 +462,11 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
     apply_steps(days, steps_payload)
 
     # Optional per-day heart rate when summaries did not carry resting HR.
+    # Cap at 14 requests so delta syncs never hammer the endpoint.
     if not any(row.get("resting_hr") is not None for row in days.values()):
         hr_rows = []
-        for day in _daterange_chunks(end - timedelta(days=13), end, 1):
+        hr_start = max(start, end - timedelta(days=13))
+        for day in _daterange_chunks(hr_start, end, 1):
             stamp = day[0].isoformat()
             payload, err = _call(
                 client,
@@ -486,7 +521,7 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
         newest = _newest_activity_date(client, secrets)
         if newest:
             warnings.append(
-                f"最近 {SYNC_DAYS} 天接口返回为空；账号上较新的活动日期是 {newest}。"
+                f"最近 {window_days} 天接口返回为空；账号上较新的活动日期是 {newest}。"
                 "请确认手表已同步到创建此 Personal API Key 的 Connect 账号；"
                 "中国区 Key 请选择中国区端点。"
             )
@@ -494,6 +529,9 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
     bundle = {
         "sample": False,
         "fetched_at": iso_sh(),
+        "sync_mode": sync_mode,
+        "sync_start": start.isoformat(),
+        "sync_end": end.isoformat(),
         "warnings": warnings[:12],
         "profile": profile,
         "activities": activities,
@@ -502,7 +540,7 @@ def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> t
     return bundle, warnings
 
 
-def sync_account(user: dict) -> dict:
+def sync_account(user: dict, *, existing: dict | None = None, skip_rate_limit: bool = False) -> dict:
     blocked = _blocked()
     if blocked:
         return blocked
@@ -510,23 +548,84 @@ def sync_account(user: dict) -> dict:
     secrets = [api_key]
     if not api_key:
         return _fail("这个配置没有 Personal API Key。请在页面里重新保存。")
+
+    rate = None if skip_rate_limit else storage.sync_state_for_user(user.get("id"))
+    if rate and rate.get("rate_limited"):
+        return {
+            "ok": False,
+            "message": rate.get("message") or "同步过于频繁。",
+            "bundle": None,
+            "rate_limited": True,
+            "retry_after_seconds": rate.get("cooldown_seconds") or 0,
+            "cooldown_seconds": rate.get("cooldown_seconds") or 0,
+            "last_sync_at": rate.get("last_sync_at"),
+            "min_interval_minutes": rate.get("min_interval_minutes"),
+            "daily_cap": rate.get("daily_cap"),
+            "syncs_today": rate.get("syncs_today"),
+            "can_sync": False,
+        }
+
+    if existing is None and user.get("id"):
+        try:
+            existing = storage.load_bundle(user["id"])
+        except storage.StorageError:
+            existing = None
+
+    start, end, mode = sync_window(
+        existing=existing,
+        backfill_days=BACKFILL_DAYS,
+        overlap_days=DELTA_OVERLAP_DAYS,
+    )
+
     try:
         access_token = obtain_access_token(user)
         secrets.append(access_token)
     except Exception as exc:
         return _fail("换取访问令牌失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
+
+    # Count any attempt that reaches Garmin so retries cannot hammer the API.
+    if not skip_rate_limit and user.get("id"):
+        try:
+            storage.record_sync_attempt(user["id"])
+        except storage.StorageError:
+            pass
+
     try:
         with PersonalApiClient(access_token, base_url=base_url_for(user)) as client:
-            bundle, warnings = fetch_bundle(client, user, secrets)
+            incoming, warnings = fetch_bundle(
+                client, user, secrets, start=start, end=end, sync_mode=mode
+            )
     except Exception as exc:
         return _fail("读取数据失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
 
+    bundle = merge_bundles(existing, incoming) if existing else incoming
     hard = [w for w in warnings if "失败" in w and not _is_optional_missing(w)]
-    if not bundle["activities"] and not bundle["days"]:
+    window_label = f"{start.isoformat()} 至 {end.isoformat()}"
+    result_meta = {
+        "sync_mode": mode,
+        "sync_start": start.isoformat(),
+        "sync_end": end.isoformat(),
+    }
+    if not bundle.get("activities") and not bundle.get("days"):
         if hard:
-            return _fail("已认证，但活动、睡眠、心率这些接口读取失败。" + hard[0])
+            fail = _fail("已认证，但活动、睡眠、心率这些接口读取失败。" + hard[0])
+            fail.update(result_meta)
+            return fail
         hint = next((w for w in warnings if "较新的活动日期" in w), None)
         if hint:
-            return _ok(bundle, f"同步完成，但最近 {SYNC_DAYS} 天没有数据。" + hint)
-        return _ok(bundle, f"同步完成，但最近 {SYNC_DAYS} 天佳明没有返回活动或健康数据。")
-    return _ok(bundle, f"已同步最近 {SYNC_DAYS} 天。")
+            ok = _ok(bundle, f"同步完成，但窗口 {window_label} 没有数据。" + hint)
+            ok.update(result_meta)
+            return ok
+        ok = _ok(bundle, f"同步完成，但窗口 {window_label} 佳明没有返回活动或健康数据。")
+        ok.update(result_meta)
+        return ok
+    if mode == "backfill":
+        message = f"已完成首次回填（{window_label}），并写入本机缓存。"
+    else:
+        message = (
+            f"已增量同步（{window_label}，含约 {DELTA_OVERLAP_DAYS} 天重叠以防延迟上传），"
+            "并合并进本机缓存。"
+        )
+    ok = _ok(bundle, message)
+    ok.update(result_meta)
+    return ok

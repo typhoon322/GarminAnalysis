@@ -90,10 +90,11 @@ def test_exchange_and_fetch_bundle_with_fixtures(fake_http, tmp_path, monkeypatc
     )
     full = storage.active_user()
     assert full is not None
-    result = garmin_sync.sync_account(full)
+    result = garmin_sync.sync_account(full, skip_rate_limit=True)
     assert result["ok"] is True, result["message"]
     bundle = result["bundle"]
     assert bundle["sample"] is False
+    assert result.get("sync_mode") == "backfill"
     assert len(bundle["activities"]) == 1
     assert bundle["activities"][0]["training_load"] == 85
     days = {row["date"]: row for row in bundle["days"]}
@@ -108,9 +109,11 @@ def test_exchange_and_fetch_bundle_with_fixtures(fake_http, tmp_path, monkeypatc
     assert bundle["profile"]["garmin_name"] == "测试跑者"
     assert fake_http.token_posts == 1
     assert not any("trainingstatus" in path for path in fake_http.gets)
-    # Second sync should reuse cached bearer (still >1h remaining).
-    result2 = garmin_sync.sync_account(storage.active_user())
+    storage.save_bundle(full["id"], bundle)
+    # Second sync should reuse cached bearer (still >1h remaining) and use delta window.
+    result2 = garmin_sync.sync_account(storage.active_user(), skip_rate_limit=True)
     assert result2["ok"] is True
+    assert result2.get("sync_mode") == "delta"
     assert fake_http.token_posts == 1
     public = garmin_sync.public_sync_result(result)
     assert "bundle" not in public
@@ -187,7 +190,7 @@ def test_empty_window_is_ok_without_training_status_404(tmp_path, monkeypatch):
     monkeypatch.delenv("GARMIN_FITNESS_DISABLE_NETWORK", raising=False)
 
     storage.add_user(display_name="empty-window", personal_api_key="empty-key")
-    result = garmin_sync.sync_account(storage.active_user())
+    result = garmin_sync.sync_account(storage.active_user(), skip_rate_limit=True)
     assert result["ok"] is True, result["message"]
     assert "trainingstatus" not in result["message"].lower()
     assert "NOT_FOUND" not in result["message"]

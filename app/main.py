@@ -52,15 +52,20 @@ def _status(view: dict | None = None) -> dict:
     if view["viewing"] == "garmin":
         synced = view["bundle"].get("fetched_at")
         garmin_name = (view["bundle"].get("profile") or {}).get("garmin_name")
+    sync = storage.sync_state_for_user(user["id"] if user else None)
+    if synced and not sync.get("last_sync_at"):
+        sync = {**sync, "last_sync_at": synced}
     return {
         "viewing": view["viewing"],
         "active_user": public,
         "users": storage.list_users(),
         "deepseek": storage.deepseek_source(),
-        "last_sync": synced,
+        "last_sync": synced or sync.get("last_sync_at"),
         "garmin_name": garmin_name,
         "data_dir": str(storage.data_dir()),
         "generated_at": iso_sh(),
+        "sync": sync,
+        "sync_policy": storage.get_sync_policy(),
     }
 
 
@@ -197,6 +202,25 @@ def save_deepseek(body: dict):
     return {"ok": True, "deepseek": source, "message": "已保存在本机。" if source == "file" else "已清除本机密钥。"}
 
 
+@app.post("/api/settings/sync")
+def save_sync_policy(body: dict):
+    if not isinstance(body, dict):
+        raise storage.StorageError("请求格式不对。")
+    policy = storage.set_sync_policy(
+        min_interval_minutes=body.get("min_interval_minutes"),
+        daily_cap=body.get("daily_cap"),
+    )
+    return {
+        "ok": True,
+        "sync_policy": policy,
+        "sync": storage.sync_state_for_user((storage.active_user() or {}).get("id")),
+        "message": (
+            f"已保存同步限制：最短间隔 {policy['min_interval_minutes']} 分钟，"
+            f"每日上限 {policy['daily_cap']} 次。"
+        ),
+    }
+
+
 @app.get("/api/report")
 def report(request: Request):
     """Deterministic report. This route never calls Garmin or DeepSeek."""
@@ -226,7 +250,10 @@ def sync():
     result = garmin_sync.sync_account(user)
     if result.get("ok") and result.get("bundle"):
         storage.save_bundle(user["id"], result["bundle"])
-    return garmin_sync.public_sync_result(result)
+    public = garmin_sync.public_sync_result(result)
+    # Always refresh rate-limit status for the UI after a sync attempt.
+    public["sync"] = storage.sync_state_for_user(user["id"])
+    return public
 
 
 @app.get("/static/plotly.min.js")
