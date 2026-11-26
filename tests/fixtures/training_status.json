@@ -1,0 +1,14 @@
+{
+  "latestTrainingStatusData": {
+    "abc": {
+      "weeklyTrainingLoad": 640,
+      "trainingStatus": "PRODUCTIVE",
+      "loadTunnelMin": 400,
+      "loadTunnelMax": 700,
+      "acuteTrainingLoadDTO": {
+        "dailyTrainingLoadAcute": 70,
+        "dailyTrainingLoadChronic": 55
+      }
+    }
+  }
+}

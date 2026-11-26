@@ -1,0 +1,34 @@
+[
+  {
+    "calendarDate": "2026-11-20",
+    "heartRate": {
+      "restingValue": 52,
+      "maxValue": 168
+    },
+    "stress": {
+      "avgLevel": 28
+    },
+    "steps": {
+      "totalSteps": 9000
+    },
+    "bodyBattery": {
+      "latestValue": 61,
+      "endOfDayValue": 55
+    }
+  },
+  {
+    "calendarDate": "2026-11-21",
+    "heartRate": {
+      "restingValue": 50
+    },
+    "stress": {
+      "avgLevel": 30
+    },
+    "steps": {
+      "totalSteps": 8500
+    },
+    "bodyBattery": {
+      "latestValue": 70
+    }
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "hrvSummaries": [
+    {
+      "calendarDate": "2026-11-20",
+      "lastNightAvg": 48,
+      "baseline": {
+        "balancedLow": 40,
+        "balancedUpper": 60
+      }
+    },
+    {
+      "calendarDate": "2026-11-21",
+      "lastNightAvg": 51,
+      "baseline": {
+        "balancedLow": 40,
+        "balancedUpper": 60
+      }
+    }
+  ]
+}

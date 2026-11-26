@@ -16,7 +16,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-.venv\Scripts\python.exe -c "import fastapi,uvicorn,garminconnect,plotly,httpx" 1>nul 2>nul
+.venv\Scripts\python.exe -c "import fastapi,uvicorn,plotly,httpx" 1>nul 2>nul
 if errorlevel 1 (
   .venv\Scripts\python.exe -m pip install -r requirements.txt
 )

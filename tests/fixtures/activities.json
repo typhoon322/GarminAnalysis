@@ -1,0 +1,15 @@
+[
+  {
+    "activityId": 1001,
+    "activityName": "晨跑",
+    "activityType": {
+      "typeKey": "running"
+    },
+    "startTimeLocal": "2026-11-20 07:00:00",
+    "duration": 3600,
+    "distance": 10000,
+    "averageHR": 140,
+    "maxHR": 168,
+    "activityTrainingLoad": 85
+  }
+]

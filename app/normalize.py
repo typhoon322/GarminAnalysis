@@ -194,12 +194,25 @@ def _sleep_fields(node: dict) -> dict:
     return fields
 
 
+def _nested_num(node: dict, path: tuple[str, ...]):
+    current: object = node
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return _num(current)
+
+
 def _rhr_fields(node: dict) -> dict:
     value = _first(node, ("restingHeartRate", "restingHR"))
+    if value is None:
+        value = _nested_num(node, ("heartRate", "restingValue"))
     if value is None or value <= 25 or value > 120:
         return {}
     fields = {"resting_hr": value}
     maximum = _first(node, ("maxHeartRate", "maxHR"))
+    if maximum is None:
+        maximum = _nested_num(node, ("heartRate", "maxValue"))
     if maximum is not None and 80 <= maximum <= 230:
         fields["max_hr"] = maximum
     return fields
@@ -207,6 +220,8 @@ def _rhr_fields(node: dict) -> dict:
 
 def _stress_fields(node: dict) -> dict:
     value = _first(node, ("overallStressLevel", "averageStressLevel", "avgStressLevel"))
+    if value is None:
+        value = _nested_num(node, ("stress", "avgLevel"))
     if value is None or value < 0 or value > 100:
         return {}
     return {"stress": value}
@@ -214,6 +229,8 @@ def _stress_fields(node: dict) -> dict:
 
 def _steps_fields(node: dict) -> dict:
     value = _first(node, ("totalSteps", "steps"))
+    if value is None:
+        value = _nested_num(node, ("steps", "totalSteps"))
     if value is None or value < 0 or value > 200_000:
         return {}
     return {"steps": value}
@@ -229,12 +246,20 @@ def _battery_fields(node: dict) -> dict:
         elif isinstance(last, dict):
             level = _num(last.get("value") if last.get("value") is not None else last.get("level"))
     if level is None:
+        battery = node.get("bodyBattery")
+        if isinstance(battery, dict):
+            level = _first(
+                battery,
+                ("latestValue", "endOfDayValue", "bodyBatteryMostRecentValue", "chargedValue"),
+            )
+        elif not isinstance(battery, (dict, list)):
+            level = _num(battery)
+    if level is None:
         level = _first(
             node,
             (
                 "bodyBatteryMostRecentValue",
                 "endOfDayBodyBattery",
-                "bodyBattery",
                 "bodyBatteryHigh",
             ),
         )

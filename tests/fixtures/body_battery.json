@@ -1,0 +1,28 @@
+[
+  {
+    "calendarDate": "2026-11-20",
+    "bodyBatteryValuesArray": [
+      [
+        100,
+        70
+      ],
+      [
+        200,
+        61
+      ]
+    ]
+  },
+  {
+    "calendarDate": "2026-11-21",
+    "bodyBatteryValuesArray": [
+      [
+        100,
+        80
+      ],
+      [
+        200,
+        70
+      ]
+    ]
+  }
+]

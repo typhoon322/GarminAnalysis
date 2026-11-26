@@ -1,18 +1,20 @@
-"""Read the signed-in user's own Garmin Connect data.
+"""Garmin Connect Personal API client (API Key → bearer token → pull).
 
-Official Garmin Health API does not accept a consumer username and password.
-This uses the garminconnect library, which logs in the same way as the
-Garmin Connect phone app. Credentials are used only for that login.
+Uses documented Personal API auth and the published connectapi resource paths
+from Garmin's Personal API surface / official Python reference client.
 """
 
 from __future__ import annotations
 
-import inspect
+import base64
 import json
-import os
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import date, timedelta
+from time import time
+from typing import Any
 
+import httpx
+
+from app import storage
 from app.clock import iso_sh, today_sh
 from app.coach import network_allowed
 from app.normalize import (
@@ -29,6 +31,18 @@ from app.normalize import (
 )
 
 SYNC_DAYS = 90
+BASE_URL = "https://personal.connectapi.garmin.com"
+TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
+# Match Garmin's official Personal API client: refresh when under 1 hour remains.
+TOKEN_REFRESH_WINDOW_SECONDS = 60 * 60
+REQUEST_TIMEOUT = 45.0
+ACTIVITY_PAGE_LIMIT = 40
+ACTIVITY_CHUNK_DAYS = 28
+SLEEP_CHUNK_DAYS = 28
+HRV_CHUNK_DAYS = 28
+BATTERY_CHUNK_DAYS = 28
+STRESS_CHUNK_DAYS = 28
+STEPS_CHUNK_DAYS = 28
 
 
 def _scrub(text: str, secrets: list[str]) -> str:
@@ -39,25 +53,18 @@ def _scrub(text: str, secrets: list[str]) -> str:
     return cleaned[:240]
 
 
-def _fail(message: str, *, needs_mfa: bool = False, client_state=None) -> dict:
-    return {
-        "ok": False,
-        "needs_mfa": needs_mfa,
-        "message": message,
-        "bundle": None,
-        "client_state": client_state,
-    }
+def _fail(message: str) -> dict:
+    return {"ok": False, "message": message, "bundle": None}
 
 
 def _ok(bundle: dict, message: str) -> dict:
-    return {"ok": True, "needs_mfa": False, "message": message, "bundle": bundle, "client_state": None}
+    return {"ok": True, "message": message, "bundle": bundle}
 
 
 def public_sync_result(result: dict) -> dict:
-    """Strip login state before anything is sent to the browser."""
+    """Strip anything that must not reach the browser."""
     return {
         "ok": bool(result.get("ok")),
-        "needs_mfa": bool(result.get("needs_mfa")),
         "message": result.get("message") or "",
     }
 
@@ -68,112 +75,15 @@ def _blocked() -> dict | None:
     return _fail("当前环境禁止连接佳明。")
 
 
-def _make_client(email: str | None, password: str | None, is_cn: bool, return_mfa: bool):
-    from garminconnect import Garmin
-
-    params = inspect.signature(Garmin.__init__).parameters
-    kwargs = {}
-    if "is_cn" in params:
-        kwargs["is_cn"] = bool(is_cn)
-    if return_mfa and "return_on_mfa" in params:
-        kwargs["return_on_mfa"] = True
-    if email is None and password is None:
-        try:
-            return Garmin(**kwargs) if kwargs else Garmin()
-        except TypeError:
-            return Garmin(is_cn=bool(is_cn)) if "is_cn" in params else Garmin()
-    return Garmin(email, password, **kwargs)
-
-
-def _login(client, token_dir: Path):
-    token_dir.mkdir(parents=True, exist_ok=True)
+def _jwt_expiration(access_token: str) -> float:
     try:
-        os.chmod(token_dir, 0o700)
-    except OSError:
-        pass
-    signature = inspect.signature(client.login)
-    if "tokenstore" in signature.parameters:
-        try:
-            return client.login(tokenstore=str(token_dir))
-        except TypeError:
-            return client.login(str(token_dir))
-    return client.login()
-
-
-def _needs_mfa(result) -> object | None:
-    if isinstance(result, tuple) and result and result[0] == "needs_mfa":
-        state = result[1]
-        if isinstance(state, str):
-            try:
-                state = json.loads(state)
-            except json.JSONDecodeError:
-                return state
-        return state
-    return None
-
-
-def _persist_tokens(client, token_dir: Path) -> None:
-    """Write garmin_tokens.json. login() already dumps; resume_login does not."""
-    token_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(token_dir, 0o700)
-    except OSError:
-        pass
-    inner = getattr(client, "client", None)
-    dump = getattr(inner, "dump", None)
-    if callable(dump):
-        try:
-            dump(str(token_dir))
-            return
-        except Exception:
-            pass
-    for name in ("save_tokens", "store_tokens", "dump"):
-        fn = getattr(client, name, None)
-        if not callable(fn):
-            continue
-        try:
-            fn(str(token_dir))
-            return
-        except TypeError:
-            continue
-        except Exception:
-            continue
-
-
-def _call(client, secrets: list[str], name: str, *args):
-    fn = getattr(client, name, None)
-    if not callable(fn):
-        return None, f"{name} 不在当前 garminconnect 版本里"
-    try:
-        return fn(*args), None
-    except Exception as exc:
-        detail = _scrub(str(exc), secrets)
-        return None, f"{name} 失败：{type(exc).__name__} {detail}".strip()[:180]
-
-
-def _as_date(value) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str) and len(value) >= 10:
-        try:
-            return date.fromisoformat(value[:10])
-        except ValueError:
-            return None
-    return None
-
-
-def _end_date(client) -> date:
-    fn = getattr(client, "today", None)
-    if callable(fn):
-        try:
-            stamp = _as_date(fn())
-            if stamp:
-                return stamp
-        except Exception:
-            pass
-    return today_sh()
+        encoded = access_token.split(".")[1]
+        payload = json.loads(
+            base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+        )
+        return float(payload["exp"])
+    except (IndexError, KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("令牌响应不是带有 exp 的 JWT。") from exc
 
 
 def _profile_from_user(user: dict) -> dict:
@@ -184,36 +94,312 @@ def _profile_from_user(user: dict) -> dict:
     }
 
 
-def fetch_bundle(client, user: dict, secrets: list[str]) -> tuple[dict, list[str]]:
-    end = _end_date(client)
-    start = end - timedelta(days=SYNC_DAYS - 1)
-    start_s, end_s = start.isoformat(), end.isoformat()
-    warnings: list[str] = []
-    days: dict[str, dict] = {}
+def _daterange_chunks(start: date, end: date, max_days: int) -> list[tuple[date, date]]:
+    if end < start:
+        return []
+    chunks: list[tuple[date, date]] = []
+    cursor = start
+    step = max(1, max_days)
+    while cursor <= end:
+        chunk_end = min(end, cursor + timedelta(days=step - 1))
+        chunks.append((cursor, chunk_end))
+        cursor = chunk_end + timedelta(days=1)
+    return chunks
 
-    def take(name: str, *args):
-        payload, err = _call(client, secrets, name, *args)
+
+class PersonalApiClient:
+    """Thin httpx client for Personal API token + connectapi GETs."""
+
+    def __init__(self, access_token: str, *, timeout: float = REQUEST_TIMEOUT):
+        self.access_token = access_token
+        self.timeout = timeout
+        self._client = httpx.Client(
+            base_url=BASE_URL,
+            timeout=timeout,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {access_token}",
+            },
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> PersonalApiClient:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def get(self, path: str, *, params: dict | None = None) -> Any:
+        response = self._client.get(path, params=params)
+        if response.status_code == 204:
+            return None
+        if not response.is_success:
+            detail = (response.text or "")[:180]
+            raise RuntimeError(f"HTTP {response.status_code} {path}: {detail}")
+        if not response.content:
+            return None
+        return response.json()
+
+
+def exchange_token(api_key: str, *, timeout: float = REQUEST_TIMEOUT) -> tuple[str, float]:
+    """POST ApiKey → raw JWT body. Returns (access_token, expires_at)."""
+    url = f"{BASE_URL}{TOKEN_PATH}"
+    response = httpx.post(
+        url,
+        headers={"Accept": "*/*", "Authorization": f"ApiKey {api_key}"},
+        timeout=timeout,
+    )
+    if not response.is_success:
+        detail = _scrub(response.text or "", [api_key])
+        raise RuntimeError(f"换取访问令牌失败：HTTP {response.status_code} {detail}".strip())
+    access_token = (response.text or "").strip()
+    if not access_token:
+        raise RuntimeError("换取访问令牌失败：响应为空。")
+    expires_at = _jwt_expiration(access_token)
+    return access_token, expires_at
+
+
+def obtain_access_token(user: dict, *, force_refresh: bool = False, now: float | None = None) -> str:
+    api_key = str(user.get("personal_api_key") or "").strip()
+    if not api_key:
+        raise RuntimeError("这个配置没有 Personal API Key。请在页面里重新保存。")
+    clock = time() if now is None else now
+    if not force_refresh:
+        cached = storage.load_bearer(user["id"], api_key)
+        if cached and cached["expires_at"] - clock > TOKEN_REFRESH_WINDOW_SECONDS:
+            return cached["access_token"]
+    access_token, expires_at = exchange_token(api_key)
+    storage.save_bearer(user["id"], api_key, access_token, expires_at)
+    return access_token
+
+
+def _call(client: PersonalApiClient, secrets: list[str], label: str, path: str, params: dict | None = None):
+    try:
+        return client.get(path, params=params), None
+    except Exception as exc:
+        detail = _scrub(f"{type(exc).__name__} {exc}", secrets)
+        return None, f"{label} 失败：{detail}".strip()[:180]
+
+
+def _fetch_chunked(
+    client: PersonalApiClient,
+    secrets: list[str],
+    label: str,
+    start: date,
+    end: date,
+    max_days: int,
+    path_for,
+) -> tuple[Any, list[str]]:
+    warnings: list[str] = []
+    collected: list = []
+    for chunk_start, chunk_end in _daterange_chunks(start, end, max_days):
+        path, params = path_for(chunk_start, chunk_end)
+        payload, err = _call(client, secrets, label, path, params)
         if err:
             warnings.append(err)
-        return payload
+            continue
+        if payload is None:
+            continue
+        if isinstance(payload, list):
+            collected.extend(payload)
+        else:
+            collected.append(payload)
+    if not collected:
+        return None, warnings
+    if len(collected) == 1 and not isinstance(collected[0], list):
+        return collected[0], warnings
+    return collected, warnings
 
-    activities_payload = take("get_activities_by_date", start_s, end_s)
-    activities = normalize_activities(activities_payload) if activities_payload is not None else []
-    apply_summaries(days, take("get_daily_summaries", start_s, end_s))
-    apply_heart_rate(days, take("get_daily_heart_rate_stats", start_s, end_s))
-    apply_hrv(days, take("get_hrv_data_range", start_s, end_s))
-    apply_sleep(days, take("get_sleep_daily", start_s, end_s))
-    battery = take("get_body_battery", start_s, end_s)
-    if battery is None:
-        battery = take("get_daily_body_battery_stats", start_s, end_s)
-    apply_body_battery(days, battery)
-    apply_stress(days, take("get_daily_stress_stats", start_s, end_s))
-    apply_steps(days, take("get_daily_steps", start_s, end_s))
+
+def _search_activities_window(
+    client: PersonalApiClient,
+    secrets: list[str],
+    start: date,
+    end: date,
+) -> tuple[list, list[str]]:
+    warnings: list[str] = []
+    rows: list = []
+    offset = 0
+    while True:
+        params = {
+            "start": offset,
+            "limit": ACTIVITY_PAGE_LIMIT,
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+        }
+        # Build a stable label without putting query secrets into logs.
+        label = f"activities {start.isoformat()}..{end.isoformat()}@{offset}"
+        path = "/activitylist-service/activities/search/activities"
+        payload, err = _call(client, secrets, label, path, params)
+        if err:
+            # Known Personal API quirk: busy windows can 500; split the range.
+            if "HTTP 500" in err and start < end:
+                mid = start + (end - start) / 2
+                mid_date = mid if isinstance(mid, date) else start + timedelta(days=(end - start).days // 2)
+                if mid_date <= start:
+                    mid_date = start
+                if mid_date >= end:
+                    warnings.append(err)
+                    return rows, warnings
+                left, left_w = _search_activities_window(client, secrets, start, mid_date)
+                right, right_w = _search_activities_window(
+                    client, secrets, mid_date + timedelta(days=1), end
+                )
+                return left + right, warnings + left_w + right_w
+            warnings.append(err)
+            break
+        batch = []
+        if isinstance(payload, list):
+            batch = payload
+        elif isinstance(payload, dict):
+            for key in ("activities", "activityList", "results"):
+                if isinstance(payload.get(key), list):
+                    batch = payload[key]
+                    break
+            if not batch:
+                batch = [payload]
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < ACTIVITY_PAGE_LIMIT:
+            break
+        offset += ACTIVITY_PAGE_LIMIT
+        if offset > 500:
+            warnings.append("活动列表分页过多，已截断。")
+            break
+    return rows, warnings
+
+
+def fetch_activities(client: PersonalApiClient, secrets: list[str], start: date, end: date) -> tuple[list, list[str]]:
+    warnings: list[str] = []
+    all_rows: list = []
+    for chunk_start, chunk_end in _daterange_chunks(start, end, ACTIVITY_CHUNK_DAYS):
+        rows, chunk_warnings = _search_activities_window(client, secrets, chunk_start, chunk_end)
+        all_rows.extend(rows)
+        warnings.extend(chunk_warnings)
+    return all_rows, warnings
+
+
+def fetch_bundle(client: PersonalApiClient, user: dict, secrets: list[str]) -> tuple[dict, list[str]]:
+    end = today_sh()
+    start = end - timedelta(days=SYNC_DAYS - 1)
+    warnings: list[str] = []
+
+    activities_payload, act_warnings = fetch_activities(client, secrets, start, end)
+    warnings.extend(act_warnings)
+    activities = normalize_activities(activities_payload) if activities_payload else []
+
+    days: dict[str, dict] = {}
+
+    summaries, sum_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "daily-summaries",
+        start,
+        end,
+        365,
+        lambda s, e: (
+            "/usersummary-service/v2/dailysummaries",
+            {"startDate": s.isoformat(), "endDate": e.isoformat()},
+        ),
+    )
+    warnings.extend(sum_warnings)
+    apply_summaries(days, summaries)
+
+    sleep_payload, sleep_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "sleep-summaries",
+        start,
+        end,
+        SLEEP_CHUNK_DAYS,
+        lambda s, e: (
+            "/sleep-service/sleep/dailySleepSummariesByDate",
+            {"startDate": s.isoformat(), "endDate": e.isoformat()},
+        ),
+    )
+    warnings.extend(sleep_warnings)
+    apply_sleep(days, sleep_payload)
+
+    hrv_payload, hrv_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "hrv-summaries",
+        start,
+        end,
+        HRV_CHUNK_DAYS,
+        lambda s, e: (f"/hrv-service/hrv/daily/{s.isoformat()}/{e.isoformat()}", None),
+    )
+    warnings.extend(hrv_warnings)
+    apply_hrv(days, hrv_payload)
+
+    battery_payload, battery_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "body-battery",
+        start,
+        end,
+        BATTERY_CHUNK_DAYS,
+        lambda s, e: (
+            "/wellness-service/wellness/bodyBattery/reports/daily",
+            {"startDate": s.isoformat(), "endDate": e.isoformat()},
+        ),
+    )
+    warnings.extend(battery_warnings)
+    apply_body_battery(days, battery_payload)
+
+    stress_payload, stress_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "stress",
+        start,
+        end,
+        STRESS_CHUNK_DAYS,
+        lambda s, e: (f"/usersummary-service/stats/stress/daily/{s.isoformat()}/{e.isoformat()}", None),
+    )
+    warnings.extend(stress_warnings)
+    apply_stress(days, stress_payload)
+
+    steps_payload, steps_warnings = _fetch_chunked(
+        client,
+        secrets,
+        "steps",
+        start,
+        end,
+        STEPS_CHUNK_DAYS,
+        lambda s, e: (f"/usersummary-service/stats/steps/daily/{s.isoformat()}/{e.isoformat()}", None),
+    )
+    warnings.extend(steps_warnings)
+    apply_steps(days, steps_payload)
+
+    # Optional per-day heart rate when summaries did not carry resting HR.
+    if not any(row.get("resting_hr") is not None for row in days.values()):
+        hr_rows = []
+        for day in _daterange_chunks(end - timedelta(days=13), end, 1):
+            stamp = day[0].isoformat()
+            payload, err = _call(
+                client,
+                secrets,
+                "heart-rate",
+                "/wellness-service/wellness/dailyHeartRate",
+                {"date": stamp},
+            )
+            if err:
+                warnings.append(err)
+                break
+            if payload is not None:
+                hr_rows.append(payload)
+        apply_heart_rate(days, hr_rows)
 
     profile = _profile_from_user(user)
-    personal = take("get_personal_information")
-    apply_profile_demographics(profile, personal)
-    # The local form wins when the user already filled sex, age, or HRmax.
+    settings, settings_err = _call(
+        client, secrets, "profile-settings", "/userprofile-service/userprofile/settings"
+    )
+    if settings_err:
+        warnings.append(settings_err)
+    apply_profile_demographics(profile, settings)
     if user.get("sex") in {"male", "female"}:
         profile["sex"] = user["sex"]
     if user.get("age"):
@@ -221,12 +407,36 @@ def fetch_bundle(client, user: dict, secrets: list[str]) -> tuple[dict, list[str
     if user.get("hr_max"):
         profile["hr_max"] = user["hr_max"]
 
-    status_payload = take("get_training_status", end_s)
-    vo2_payload = take("get_max_metrics_latest", end_s)
+    # VO2 max is on the published Personal API surface (metrics maxmet daily).
+    vo2_payload, vo2_err = _call(
+        client,
+        secrets,
+        "vo2-max",
+        f"/metrics-service/metrics/maxmet/daily/{start.isoformat()}/{end.isoformat()}",
+    )
+    if vo2_err:
+        warnings.append(vo2_err)
+
+    # Training status is not listed on Garmin's Personal API wrapper table; try once
+    # and treat failure as a soft warning without inventing fields.
+    status_payload, status_err = _call(
+        client,
+        secrets,
+        "training-status",
+        f"/metrics-service/metrics/trainingstatus/daily/{end.isoformat()}",
+    )
+    if status_err:
+        warnings.append(status_err)
+        status_payload = None
+
     apply_training(profile, status_payload, vo2_payload)
-    name = getattr(client, "full_name", None)
-    if isinstance(name, str) and name.strip():
-        profile["garmin_name"] = name.strip()[:80]
+
+    if isinstance(settings, dict):
+        for key in ("displayName", "userDisplayName", "fullName", "userName"):
+            value = settings.get(key)
+            if isinstance(value, str) and value.strip():
+                profile["garmin_name"] = value.strip()[:80]
+                break
 
     bundle = {
         "sample": False,
@@ -239,60 +449,24 @@ def fetch_bundle(client, user: dict, secrets: list[str]) -> tuple[dict, list[str
     return bundle, warnings
 
 
-def _login_error(exc: Exception, secrets: list[str]) -> dict:
-    detail = _scrub(str(exc), secrets)
-    if detail:
-        return _fail(f"登录失败：{type(exc).__name__}。{detail}")
-    return _fail(f"登录失败：{type(exc).__name__}。")
-
-
-def sync_account(user: dict, token_dir: Path) -> dict:
+def sync_account(user: dict) -> dict:
     blocked = _blocked()
     if blocked:
         return blocked
-    email = str(user.get("email") or "")
-    password = str(user.get("password") or "")
-    secrets = [password, email]
-    if not email or not password:
-        return _fail("这个账号在本机没有密码。请在页面里重新保存。")
+    api_key = str(user.get("personal_api_key") or "").strip()
+    secrets = [api_key]
+    if not api_key:
+        return _fail("这个配置没有 Personal API Key。请在页面里重新保存。")
     try:
-        client = _make_client(email, password, bool(user.get("is_cn")), True)
-        result = _login(client, token_dir)
+        access_token = obtain_access_token(user)
+        secrets.append(access_token)
     except Exception as exc:
-        return _login_error(exc, secrets)
-    state = _needs_mfa(result)
-    if state is not None:
-        return _fail("佳明要求验证码。填入短信或邮箱里的一次性验证码后再同步。", needs_mfa=True, client_state=state)
+        return _fail("换取访问令牌失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
     try:
-        bundle, warnings = fetch_bundle(client, user, secrets)
-        _persist_tokens(client, token_dir)
+        with PersonalApiClient(access_token) as client:
+            bundle, warnings = fetch_bundle(client, user, secrets)
     except Exception as exc:
-        return _fail("登录后读取数据失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
+        return _fail("读取数据失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
     if not bundle["activities"] and not bundle["days"] and warnings:
-        return _fail("已登录，但活动、睡眠、心率这些接口都没有返回数据。" + warnings[0])
-    return _ok(bundle, f"已同步最近 {SYNC_DAYS} 天。")
-
-
-def resume_account(user: dict, client_state, code: str, token_dir: Path) -> dict:
-    blocked = _blocked()
-    if blocked:
-        return blocked
-    token = str(code or "").strip()
-    if not token:
-        return _fail("请填写验证码。")
-    email = str(user.get("email") or "")
-    password = str(user.get("password") or "")
-    secrets = [password, email, token]
-    try:
-        client = _make_client(None, None, bool(user.get("is_cn")), False)
-        client.resume_login(client_state, token)
-    except Exception as exc:
-        return _fail("验证码没有通过：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
-    try:
-        bundle, warnings = fetch_bundle(client, user, secrets)
-        _persist_tokens(client, token_dir)
-    except Exception as exc:
-        return _fail("验证之后读取数据失败：" + _scrub(f"{type(exc).__name__} {exc}", secrets))
-    if not bundle["activities"] and not bundle["days"] and warnings:
-        return _fail("已登录，但没有取到可用数据。" + warnings[0])
+        return _fail("已认证，但活动、睡眠、心率这些接口都没有返回数据。" + warnings[0])
     return _ok(bundle, f"已同步最近 {SYNC_DAYS} 天。")

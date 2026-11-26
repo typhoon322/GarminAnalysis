@@ -1,0 +1,8 @@
+{
+  "generic": {
+    "vo2MaxPreciseValue": 49.2
+  },
+  "cycling": {
+    "vo2MaxValue": 45
+  }
+}

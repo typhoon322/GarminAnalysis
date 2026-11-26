@@ -1,10 +1,11 @@
-"""Local config, passwords, and cached health data.
+"""Local config, Personal API keys, and cached health data.
 
 Secret files are mode 0600. Nothing here is sent anywhere by itself.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -129,11 +130,12 @@ def assert_user_id(user_id: str) -> str:
 
 
 def public_user(user: dict) -> dict:
+    key = str(user.get("personal_api_key") or "").strip()
     return {
         "id": user.get("id"),
-        "email": user.get("email"),
         "display_name": user.get("display_name"),
-        "is_cn": bool(user.get("is_cn")),
+        "label": user.get("label") or "",
+        "has_personal_api_key": bool(key),
         "sex": user.get("sex") or "unknown",
         "age": user.get("age"),
         "hr_max": user.get("hr_max"),
@@ -166,10 +168,8 @@ def set_active_user(user_id: str) -> dict:
     return public_user(data["users"][user_id])
 
 
-def _clean_display_name(name: str, email: str) -> str:
+def _clean_name(name: str) -> str:
     text = " ".join((name or "").split())
-    if not text:
-        text = email.split("@", 1)[0] or email
     return text[:40]
 
 
@@ -189,21 +189,22 @@ def _optional_number(value, name: str, low: float, high: float, as_int: bool) ->
 
 def add_user(
     *,
-    email: str,
-    password: str,
-    display_name: str = "",
-    is_cn: bool = False,
+    display_name: str,
+    personal_api_key: str,
+    label: str = "",
     sex: str = "unknown",
     age=None,
     hr_max=None,
 ) -> dict:
-    cleaned = (email or "").strip()
-    if len(cleaned) < 3 or len(cleaned) > 200 or any(ch.isspace() for ch in cleaned):
-        raise StorageError("请填写邮箱或手机号。")
-    if password is None or str(password) == "":
-        raise StorageError("请填写密码。密码只保存在本机。")
-    if len(str(password)) > 200:
-        raise StorageError("密码太长。")
+    name = _clean_name(display_name)
+    if len(name) < 1:
+        raise StorageError("请填写配置名称。")
+    key = str(personal_api_key or "").strip()
+    if not key:
+        raise StorageError("请填写 Garmin Personal API Key。密钥只保存在本机。")
+    if len(key) > 500:
+        raise StorageError("Personal API Key 太长。")
+    label_text = " ".join((label or "").split())[:60]
     if sex not in {"male", "female", "unknown"}:
         raise StorageError("性别请选男、女，或留空。")
     age_value = _optional_number(age, "年龄", 10, 100, True)
@@ -211,7 +212,7 @@ def add_user(
     data = load_secrets()
     existing = None
     for user in data["users"].values():
-        if str(user.get("email", "")).lower() == cleaned.lower():
+        if str(user.get("display_name", "")).lower() == name.lower():
             existing = user
             break
     now = iso_sh()
@@ -219,10 +220,9 @@ def add_user(
         user_id = uuid.uuid4().hex
         record = {
             "id": user_id,
-            "email": cleaned,
-            "display_name": _clean_display_name(display_name, cleaned),
-            "password": str(password),
-            "is_cn": bool(is_cn),
+            "display_name": name,
+            "label": label_text,
+            "personal_api_key": key,
             "sex": sex,
             "age": age_value,
             "hr_max": hr_value,
@@ -231,15 +231,18 @@ def add_user(
         }
         data["users"][user_id] = record
     else:
-        existing["email"] = cleaned
-        existing["display_name"] = _clean_display_name(display_name, cleaned)
-        existing["password"] = str(password)
-        existing["is_cn"] = bool(is_cn)
+        existing["display_name"] = name
+        existing["label"] = label_text
+        existing["personal_api_key"] = key
         existing["sex"] = sex
         existing["age"] = age_value
         existing["hr_max"] = hr_value
         existing["updated_at"] = now
+        # Drop legacy password-login fields if an old secrets file is reused.
+        for legacy in ("email", "password", "is_cn"):
+            existing.pop(legacy, None)
         record = existing
+        clear_bearer(record["id"])
     data["active_user_id"] = record["id"]
     save_secrets(data)
     return public_user(record)
@@ -257,7 +260,7 @@ def delete_user(user_id: str) -> None:
     save_secrets(data)
     _remove_tree(data_dir() / "cache" / user_id)
     _remove_tree(data_dir() / "tokens" / user_id)
-    mfa = _mfa_path(user_id)
+    mfa = data_dir() / "mfa" / f"{user_id}.json"
     if mfa.exists():
         try:
             mfa.unlink()
@@ -306,6 +309,56 @@ def token_dir(user_id: str) -> Path:
     return path
 
 
+def bearer_path(user_id: str) -> Path:
+    return token_dir(user_id) / "bearer.json"
+
+
+def api_key_fingerprint(api_key: str) -> str:
+    return hashlib.sha256(str(api_key).encode("utf-8")).hexdigest()
+
+
+def load_bearer(user_id: str, api_key: str) -> dict | None:
+    path = bearer_path(user_id)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("fingerprint") != api_key_fingerprint(api_key):
+        return None
+    token = str(data.get("access_token") or "").strip()
+    try:
+        expires_at = float(data.get("expires_at"))
+    except (TypeError, ValueError):
+        return None
+    if not token:
+        return None
+    return {"access_token": token, "expires_at": expires_at}
+
+
+def save_bearer(user_id: str, api_key: str, access_token: str, expires_at: float) -> None:
+    write_private_json(
+        bearer_path(user_id),
+        {
+            "fingerprint": api_key_fingerprint(api_key),
+            "access_token": access_token,
+            "expires_at": float(expires_at),
+        },
+    )
+
+
+def clear_bearer(user_id: str) -> None:
+    path = bearer_path(user_id)
+    if path.exists():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def bundle_path(user_id: str) -> Path:
     return data_dir() / "cache" / assert_user_id(user_id) / "bundle.json"
 
@@ -325,40 +378,3 @@ def load_bundle(user_id: str) -> dict | None:
 
 def save_bundle(user_id: str, bundle: dict) -> None:
     write_private_json(bundle_path(user_id), bundle)
-
-
-def _mfa_path(user_id: str) -> Path:
-    return data_dir() / "mfa" / f"{assert_user_id(user_id)}.json"
-
-
-def save_mfa(user_id: str, state: object) -> None:
-    write_private_json(_mfa_path(user_id), {"client_state": state})
-
-
-def load_mfa(user_id: str) -> object | None:
-    path = _mfa_path(user_id)
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if isinstance(data, dict) and "client_state" in data:
-        return data["client_state"]
-    return None
-
-
-def has_mfa(user_id: str) -> bool:
-    try:
-        return _mfa_path(user_id).is_file()
-    except StorageError:
-        return False
-
-
-def clear_mfa(user_id: str) -> None:
-    path = _mfa_path(user_id)
-    if path.exists():
-        try:
-            path.unlink()
-        except OSError:
-            pass

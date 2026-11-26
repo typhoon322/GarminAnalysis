@@ -1,8 +1,10 @@
 # 佳明体能健康分析
 
-在你自己的电脑上打开一个页面，读取**当前登录的佳明 Connect 账号**（和手机 App 是同一个账号），计算训练负荷和恢复指标，并画出图。没有登录时，页面用一套标明为**示例数据**的演示序列，方便先看到图表。
+在你自己的电脑上打开一个页面，用 **Garmin Connect Personal API** 读取你自己的活动与健康数据，计算训练负荷和恢复指标，并画出图。还没有配置密钥或尚未同步时，页面用一套标明为**示例数据**的演示序列，方便先看到图表。
 
-官方 Garmin Health API 不接受消费级账号的用户名和密码。这个工具用 Python 库 `garminconnect` 登录 Garmin Connect。
+认证方式：在 Garmin Connect 网页创建 Personal API Key，本工具用该 Key 换取访问令牌（Bearer），再调用 Personal / connectapi 资源拉取数据。**不再使用邮箱/密码或 MFA 登录。**
+
+官方说明：<https://developer.garmin.com/gc-developer-program/personal/personal-api/>
 
 ## 运行
 
@@ -32,14 +34,24 @@ Windows 可以双击或在命令行运行 `run.bat`（同样创建 `.venv`、安
 
 ## 第一次使用
 
-1. 打开页面，在「账号」里填写手机佳明 Connect 的邮箱（中国区可以是手机号）和密码，需要时勾选「中国区账号」。
-2. 性别、年龄、最大心率可以不填。填写后，没有佳明训练负荷的活动会用来算 TRIMP；最大心率也会用来分强度。
-3. 点「从佳明同步最近 90 天」。如果佳明要求验证码，页面上会出现输入框。
-4. DeepSeek API Key 可填可不填，在同一张卡片里保存。
+1. 登录 [Garmin Connect 网页](https://connect.garmin.com/)，打开 [Personal API Key 页面](https://connect.garmin.com/modern/settings/personalApiToken)（也可在设置里搜索 Personal API）。
+2. 选择 **Create Key**，阅读并接受条款，选择过期时间后创建。密钥**只会显示一次**，请立刻复制并妥善保存。
+3. 打开本机页面，在「配置」里填写配置名称，粘贴 Personal API Key；可选填写备注标签、性别、年龄、最大心率。
+4. 点「保存配置并设为当前」，再点「从佳明同步最近 90 天」。
+5. DeepSeek API Key 可填可不填，在同一侧卡片里保存。
 
-这些都写在本机，不必改代码。`.env.example` 里**没有**必填的佳明账号。可选的 `DEEPSEEK_API_KEY`、`DATA_DIR`、`PORT` 只在你想用环境变量时才需要；复制成 `.env` 即可。只要 `data/secrets.json` 已经存在，DeepSeek 密钥以这个文件为准。
+可添加多个命名配置，每个配置各自保存一份 Personal API Key。这些都写在本机，不必改代码。`.env.example` 里没有必填的佳明密钥。可选的 `DEEPSEEK_API_KEY`、`DATA_DIR`、`PORT` 只在你想用环境变量时才需要；复制成 `.env` 即可。只要 `data/secrets.json` 已经存在，DeepSeek 密钥以这个文件为准。
 
-不要把佳明密码放进命令行或环境变量。
+不要把 Personal API Key 放进命令行、截图或公开仓库。
+
+换取令牌的官方接口：
+
+```bash
+curl -X POST 'https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token' \
+  -H 'Authorization: ApiKey [your-api-key]'
+```
+
+访问令牌最长约 24 小时（或随 Key 过期），没有 refresh token；过期后本工具会用同一把 Key 重新换取。
 
 ## 密钥放在哪
 
@@ -47,14 +59,13 @@ Windows 可以双击或在命令行运行 `run.bat`（同样创建 `.venv`、安
 
 | 路径 | 内容 |
 | --- | --- |
-| `data/secrets.json` | 每个账号的邮箱、密码、可选的年龄和心率，以及 DeepSeek 密钥 |
-| `data/tokens/<账号>/` | 佳明登录后的令牌 |
-| `data/mfa/` | 等待验证码时的临时登录状态 |
-| `data/cache/<账号>/bundle.json` | 同步下来并整理过的活动与每日数据 |
+| `data/secrets.json` | 每个配置的 Personal API Key、可选的年龄和心率，以及 DeepSeek 密钥 |
+| `data/tokens/<配置>/bearer.json` | 由 API Key 换得的访问令牌缓存 |
+| `data/cache/<配置>/bundle.json` | 同步下来并整理过的活动与每日数据 |
 
 密钥文件按 `0600` 写入（只允许当前系统用户读写），目录按 `0700`。`.gitignore` 已忽略 `data/`、`.env` 和 `.venv/`。
 
-换一台电脑：复制整个项目目录。想连同已同步的数据和本机密码一起搬走，就带上 `data/`，并把它当成私密文件保管。令牌失效时，在页面里重新保存密码并再同步一次。
+换一台电脑：复制整个项目目录。想连同已同步的数据和本机密钥一起搬走，就带上 `data/`，并把它当成私密文件保管。令牌缓存失效时，只要 Key 仍有效，再同步一次即可；Key 过期或丢失时，在 Connect 网页新建 Key 并在页面重新保存。
 
 ## DeepSeek 会收到什么
 
@@ -64,7 +75,7 @@ Windows 可以双击或在命令行运行 `run.bat`（同样创建 `.venv`、安
 - 本机保存了 API Key（或还没有 `secrets.json` 时，环境变量里有 `DEEPSEEK_API_KEY`）
 - 浏览器打开了页面（或调用了 `/api/coach`）
 
-发出去的是已经算好的指标、警报和本地建议，**不含**密码、令牌、邮箱，也不含原始活动明细。密钥只放在 `Authorization` 头里。
+发出去的是已经算好的指标、警报和本地建议，**不含** Personal API Key、访问令牌，也不含原始活动明细。密钥只放在 `Authorization` 头里。
 
 没填密钥，或请求失败时，页面仍显示本地算好的报告，并写明模型建议不可用。
 
@@ -93,7 +104,7 @@ CTL/ATL 从这段数据的第一天以 0 起步，前几周会偏低。页面底
 
 页面引用 `/static/plotly.min.js`，由已经安装的 `plotly` 包在本机提供，打开页面不必再访问 CDN。
 
-需要网络的时候：第一次 `pip install`、点「同步」连接佳明、以及你配置了密钥后又在看真实数据时调用 DeepSeek。
+需要网络的时候：第一次 `pip install`、点「同步」连接佳明 Personal API、以及你配置了 DeepSeek 密钥后又在看真实数据时调用 DeepSeek。
 
 服务只绑定 `127.0.0.1`，页面本身没有另一套登录。不要把它改成对局域网开放。
 
@@ -105,4 +116,4 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-测试使用夹具和示例数据，并设置 `GARMIN_FITNESS_DISABLE_NETWORK=1`，不会登录佳明，也不会请求 DeepSeek。覆盖 ACWR、CTL/ATL/TSB 和恢复警报。
+测试使用夹具和示例数据，并设置 `GARMIN_FITNESS_DISABLE_NETWORK=1`，不会连接佳明，也不会请求 DeepSeek。覆盖 ACWR、CTL/ATL/TSB、恢复警报，以及带 mock 令牌与 JSON fixture 的 Personal API 同步路径。

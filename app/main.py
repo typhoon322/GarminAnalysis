@@ -56,7 +56,6 @@ def _status(view: dict | None = None) -> dict:
         "viewing": view["viewing"],
         "active_user": public,
         "users": storage.list_users(),
-        "needs_mfa": bool(user and storage.has_mfa(user["id"])),
         "deepseek": storage.deepseek_source(),
         "last_sync": synced,
         "garmin_name": garmin_name,
@@ -69,7 +68,7 @@ def _report_for(view: dict) -> dict:
     report = analyze(view["bundle"])
     report["viewing"] = view["viewing"]
     if view["user"]:
-        report["active_user_label"] = view["user"].get("display_name") or view["user"].get("email")
+        report["active_user_label"] = view["user"].get("display_name") or view["user"].get("label")
     else:
         report["active_user_label"] = None
     return report
@@ -159,15 +158,14 @@ def create_user(body: dict):
     if not isinstance(body, dict):
         raise storage.StorageError("请求格式不对。")
     user = storage.add_user(
-        email=str(body.get("email") or ""),
-        password=str(body.get("password") or ""),
         display_name=str(body.get("display_name") or ""),
-        is_cn=bool(body.get("is_cn")),
+        personal_api_key=str(body.get("personal_api_key") or ""),
+        label=str(body.get("label") or ""),
         sex=str(body.get("sex") or "unknown"),
         age=body.get("age"),
         hr_max=body.get("hr_max"),
     )
-    return {"ok": True, "user": user, "message": "已保存在本机，并设为当前账号。"}
+    return {"ok": True, "user": user, "message": "已保存在本机，并设为当前配置。"}
 
 
 @app.post("/api/users/select")
@@ -181,7 +179,7 @@ def select_user(body: dict):
 @app.delete("/api/users/{user_id}")
 def remove_user(user_id: str):
     storage.delete_user(user_id)
-    return {"ok": True, "message": "已删除本机保存的账号、密码和缓存。佳明云端数据没有动。"}
+    return {"ok": True, "message": "已删除本机保存的配置、密钥缓存和数据缓存。佳明云端数据没有动。"}
 
 
 @app.post("/api/settings/deepseek")
@@ -216,29 +214,9 @@ def coach():
 def sync():
     user = storage.active_user()
     if not user:
-        raise storage.StorageError("还没有当前账号。先在页面里保存邮箱和密码。")
-    result = garmin_sync.sync_account(user, storage.token_dir(user["id"]))
-    if result.get("needs_mfa") and result.get("client_state") is not None:
-        storage.save_mfa(user["id"], result["client_state"])
-    elif result.get("ok") and result.get("bundle"):
-        storage.clear_mfa(user["id"])
-        storage.save_bundle(user["id"], result["bundle"])
-    return garmin_sync.public_sync_result(result)
-
-
-@app.post("/api/mfa")
-def mfa(body: dict):
-    if not isinstance(body, dict):
-        raise storage.StorageError("请求格式不对。")
-    user = storage.active_user()
-    if not user:
-        raise storage.StorageError("还没有当前账号。")
-    state = storage.load_mfa(user["id"])
-    if state is None:
-        raise storage.StorageError("没有待完成的验证码登录。请重新同步。")
-    result = garmin_sync.resume_account(user, state, str(body.get("code") or ""), storage.token_dir(user["id"]))
+        raise storage.StorageError("还没有当前配置。先在页面里保存 Personal API Key。")
+    result = garmin_sync.sync_account(user)
     if result.get("ok") and result.get("bundle"):
-        storage.clear_mfa(user["id"])
         storage.save_bundle(user["id"], result["bundle"])
     return garmin_sync.public_sync_result(result)
 

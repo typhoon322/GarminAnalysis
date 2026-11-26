@@ -44,22 +44,33 @@ def test_report_and_home_render_sample_without_calling_the_model(client, monkeyp
     assert f"{body['summary']['acwr']:.2f}" in page.text
     assert "sk-should-stay-local" not in page.text
     assert "本地建议" in page.text
+    assert "Personal API" in page.text
+    assert "邮箱或手机号" not in page.text
+    assert "中国区账号" not in page.text
+    assert "验证码" not in page.text
+    assert 'name="email"' not in page.text
+    assert 'id="password"' not in page.text
+    assert 'id="personal-api-key"' in page.text
 
 
-def test_password_stays_in_the_secret_file_only(client):
-    secret = "local-secret-pass"
+def test_personal_api_key_stays_in_the_secret_file_only(client):
+    secret = "local-personal-api-key-secret"
     created = client.post(
         "/api/users",
-        json={"email": "runner@example.com", "password": secret, "display_name": "测试"},
+        json={"display_name": "测试配置", "personal_api_key": secret, "label": "主号"},
     )
     assert created.status_code == 200
     assert secret not in created.text
-    user_id = created.json()["user"]["id"]
+    body = created.json()
+    assert body["user"]["has_personal_api_key"] is True
+    assert "personal_api_key" not in body["user"]
+    user_id = body["user"]["id"]
     assert secret not in client.get("/api/users").text
     assert secret not in client.get("/api/status").text
     assert secret not in client.get("/").text
     saved = json.loads(storage.secrets_path().read_text(encoding="utf-8"))
-    assert saved["users"][user_id]["password"] == secret
+    assert saved["users"][user_id]["personal_api_key"] == secret
+    assert "password" not in saved["users"][user_id]
     assert storage.secrets_path().stat().st_mode & 0o777 == 0o600
     assert saved["active_user_id"] == user_id
 
@@ -68,7 +79,10 @@ def test_corrupt_secrets_are_not_overwritten(client):
     path = storage.secrets_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{broken", encoding="utf-8")
-    response = client.post("/api/users", json={"email": "a@example.com", "password": "x"})
+    response = client.post(
+        "/api/users",
+        json={"display_name": "a", "personal_api_key": "x"},
+    )
     assert response.status_code == 400
     assert path.read_text(encoding="utf-8") == "{broken"
 
@@ -78,22 +92,23 @@ def test_delete_rejects_a_path_like_id(client):
 
 
 def test_sync_does_not_call_garmin_when_network_is_disabled(client):
-    client.post("/api/users", json={"email": "runner@example.com", "password": "local-secret-pass"})
+    client.post(
+        "/api/users",
+        json={"display_name": "runner", "personal_api_key": "local-personal-api-key"},
+    )
     response = client.post("/api/sync")
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is False
     assert "佳明" in body["message"]
-    assert "local-secret-pass" not in response.text
-    assert "client_state" not in body
+    assert "local-personal-api-key" not in response.text
+    assert "needs_mfa" not in body
 
 
-def test_sync_result_strips_mfa_state():
-    public = public_sync_result(
-        {"ok": False, "needs_mfa": True, "message": "需要验证码", "client_state": {"cookie": "secret-state"}}
-    )
-    assert public == {"ok": False, "needs_mfa": True, "message": "需要验证码"}
-    assert "secret-state" not in json.dumps(public)
+def test_sync_result_is_public_only():
+    public = public_sync_result({"ok": False, "message": "失败", "bundle": {"secret": 1}})
+    assert public == {"ok": False, "message": "失败"}
+    assert "secret" not in json.dumps(public)
 
 
 def test_sample_coach_endpoint_never_calls_deepseek(client, monkeypatch):
@@ -121,7 +136,7 @@ def test_real_bundle_sends_metrics_only(client, monkeypatch):
     monkeypatch.setattr("app.coach.complete", fake)
     created = client.post(
         "/api/users",
-        json={"email": "runner@example.com", "password": "local-secret-pass", "display_name": "测试"},
+        json={"display_name": "测试", "personal_api_key": "local-personal-api-key"},
     )
     user_id = created.json()["user"]["id"]
     bundle = build_sample_bundle(date(2026, 11, 26))
@@ -134,10 +149,10 @@ def test_real_bundle_sends_metrics_only(client, monkeypatch):
     assert response.json()["available"] is True
     blob = json.dumps(captured["payload"], ensure_ascii=False)
     assert captured["key"] == "sk-unit-test"
-    assert "local-secret-pass" not in blob
+    assert "local-personal-api-key" not in blob
     assert "sk-unit-test" not in blob
     assert "password" not in blob
-    assert "runner@example.com" not in blob
+    assert "personal_api_key" not in blob
     assert "activities" not in captured["payload"]
     assert captured["payload"]["summary"]["ctl"] is not None
 
@@ -152,3 +167,17 @@ def test_plotly_is_served_from_the_local_package(client):
     assert response.status_code == 200
     assert "javascript" in response.headers["content-type"]
     assert len(response.content) > 10_000
+
+
+def test_status_has_no_mfa_or_password_fields(client):
+    client.post(
+        "/api/users",
+        json={"display_name": "status-check", "personal_api_key": "key-for-status"},
+    )
+    status = client.get("/api/status").json()
+    assert "needs_mfa" not in status
+    user = status["active_user"]
+    assert user["has_personal_api_key"] is True
+    assert "email" not in user
+    assert "password" not in user
+    assert "personal_api_key" not in user

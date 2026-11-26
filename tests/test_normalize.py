@@ -5,6 +5,7 @@ from app.normalize import (
     apply_heart_rate,
     apply_hrv,
     apply_sleep,
+    apply_summaries,
     apply_training,
     normalize_activities,
 )
@@ -92,3 +93,24 @@ def test_training_status_and_vo2():
     assert profile["weekly_training_load"] == 640
     assert profile["load_tunnel_min"] == 400
     assert profile["garmin_acute_load"] == 70
+
+
+def test_personal_api_nested_daily_summary():
+    days = {}
+    apply_summaries(
+        days,
+        [
+            {
+                "calendarDate": "2026-11-20",
+                "heartRate": {"restingValue": 52, "maxValue": 168},
+                "stress": {"avgLevel": 28},
+                "steps": {"totalSteps": 9000},
+                "bodyBattery": {"latestValue": 61, "endOfDayValue": 55},
+            }
+        ],
+    )
+    assert days["2026-11-20"]["resting_hr"] == 52
+    assert days["2026-11-20"]["max_hr"] == 168
+    assert days["2026-11-20"]["stress"] == 28
+    assert days["2026-11-20"]["steps"] == 9000
+    assert days["2026-11-20"]["body_battery"] == 61

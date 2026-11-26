@@ -41,8 +41,6 @@
     input, select, button { font: inherit; color: inherit; }
     input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); background: #fff; }
     .row { display: flex; gap: 10px; align-items: center; }
-    .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--ink); font-size: 14px; }
-    .check input { width: auto; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
     button { background: var(--spruce); color: #f7f4ee; border: 0; padding: 8px 14px; cursor: pointer; }
     button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
@@ -74,6 +72,7 @@
     details.methods dd { margin: 4px 0 0; color: var(--muted); }
     footer { width: min(1080px, calc(100% - 32px)); margin: 8px auto 32px; color: var(--muted); font-size: 13px; }
     code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; }
+    a { color: var(--spruce); }
     [hidden] { display: none !important; }
     @media (max-width: 800px) {
       header, .split, #charts { display: block; }
@@ -93,14 +92,15 @@
   <main>
     <div class="split">
       <form id="account-form" class="card">
-        <h2>账号</h2>
-        <p class="quiet">用手机佳明 Connect 的同一个邮箱和密码。官方 Health API 不接受消费级账号密码，这里通过 Connect 登录，只读取你自己的数据。</p>
-        <label for="email">邮箱或手机号</label>
-        <input id="email" name="email" autocomplete="username" required>
-        <label for="password">密码</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <label for="display-name">显示名（可选）</label>
-        <input id="display-name" name="display_name" maxlength="40">
+        <h2>配置</h2>
+        <p class="quiet">在 Garmin Connect 网页创建 Personal API Key，粘贴到这里一次即可。本工具用官方 Personal API（API Key → 访问令牌）读取你自己的活动与健康数据，不再使用邮箱密码登录。</p>
+        <p class="quiet">说明与创建入口：<a href="https://developer.garmin.com/gc-developer-program/personal/personal-api/" target="_blank" rel="noopener noreferrer">Garmin Connect Personal API</a> · <a href="https://connect.garmin.com/modern/settings/personalApiToken" target="_blank" rel="noopener noreferrer">Personal API Key 页面</a></p>
+        <label for="display-name">配置名称</label>
+        <input id="display-name" name="display_name" maxlength="40" required placeholder="例如：我的手表">
+        <label for="label">备注标签（可选）</label>
+        <input id="label" name="label" maxlength="60" placeholder="可选说明">
+        <label for="personal-api-key">Garmin Personal API Key</label>
+        <input id="personal-api-key" name="personal_api_key" type="password" autocomplete="off" required placeholder="只显示一次，请妥善保存">
         <div class="row">
           <div style="flex:1">
             <label for="sex">性别（可选，用于 TRIMP）</label>
@@ -119,19 +119,18 @@
             <input id="hr-max" name="hr_max" inputmode="numeric">
           </div>
         </div>
-        <label class="check"><input id="is-cn" type="checkbox">中国区账号（Garmin.cn）</label>
         <div class="actions">
-          <button type="submit">保存账号并设为当前</button>
+          <button type="submit">保存配置并设为当前</button>
         </div>
         <p id="form-msg" class="msg" role="status"></p>
       </form>
       <div class="card">
         <h2>当前与同步</h2>
-        <label for="user-select">已保存的账号</label>
+        <label for="user-select">已保存的配置</label>
         <select id="user-select"></select>
         <div class="actions">
-          <button type="button" id="switch-user" class="secondary">切换到所选账号</button>
-          <button type="button" id="delete-user" class="secondary">删除所选账号</button>
+          <button type="button" id="switch-user" class="secondary">切换到所选配置</button>
+          <button type="button" id="delete-user" class="secondary">删除所选配置</button>
         </div>
         <label for="deepseek-key">DeepSeek API Key（可选）</label>
         <input id="deepseek-key" type="password" autocomplete="off" placeholder="只保存在本机，不会回显">
@@ -144,14 +143,7 @@
           <button type="button" id="sync">从佳明同步最近 90 天</button>
         </div>
         <p id="sync-msg" class="msg" role="status"></p>
-        <div id="mfa-box" hidden>
-          <label for="mfa-code">佳明验证码</label>
-          <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code">
-          <div class="actions">
-            <button type="button" id="mfa-submit">提交验证码</button>
-          </div>
-        </div>
-        <p class="quiet">密码、令牌和密钥写在 <code id="data-dir"></code>，文件权限 0600。同步时密码只发给 Garmin。DeepSeek 只在查看已同步数据且保存了密钥时收到算好的指标。</p>
+        <p class="quiet">Personal API Key、访问令牌缓存和 DeepSeek 密钥写在 <code id="data-dir"></code>，文件权限 0600。同步时用 API Key 换取临时访问令牌（最长约 24 小时），不会向佳明发送邮箱密码。DeepSeek 只在查看已同步数据且保存了密钥时收到算好的指标。</p>
       </div>
     </div>
     <div id="report">
@@ -182,6 +174,12 @@
       return data;
     }
 
+    function profileLabel(user) {
+      const tag = user.label ? " · " + user.label : "";
+      const key = user.has_personal_api_key ? "" : " · 缺 Key";
+      return user.display_name + tag + key;
+    }
+
     function renderWho(status) {
       const host = document.getElementById("who");
       host.replaceChildren();
@@ -189,10 +187,9 @@
       const sub = document.createElement("p");
       sub.className = "quiet";
       if (status.active_user) {
-        const user = status.active_user;
-        line.textContent = "当前账号：" + user.display_name + "（" + user.email + "）" + (user.is_cn ? " · 中国区" : "");
+        line.textContent = "当前配置：" + profileLabel(status.active_user);
       } else {
-        line.textContent = "当前账号：还没有添加";
+        line.textContent = "当前配置：还没有添加";
       }
       sub.textContent = status.viewing === "garmin" ? "正在查看：已同步的佳明数据" : "正在查看：示例数据";
       host.append(line, sub);
@@ -204,14 +201,14 @@
       if (!status.users.length) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "还没有账号";
+        option.textContent = "还没有配置";
         select.append(option);
         return;
       }
       status.users.forEach((user) => {
         const option = document.createElement("option");
         option.value = user.id;
-        option.textContent = user.display_name + "（" + user.email + "）" + (user.is_cn ? " · 中国区" : "");
+        option.textContent = profileLabel(user);
         select.append(option);
       });
       if (status.active_user) select.value = status.active_user.id;
@@ -350,10 +347,9 @@
       const age = document.getElementById("age").value.trim();
       const hr = document.getElementById("hr-max").value.trim();
       const data = await post("/api/users", {
-        email: document.getElementById("email").value.trim(),
-        password: document.getElementById("password").value,
         display_name: document.getElementById("display-name").value.trim(),
-        is_cn: document.getElementById("is-cn").checked,
+        label: document.getElementById("label").value.trim(),
+        personal_api_key: document.getElementById("personal-api-key").value.trim(),
         sex: document.getElementById("sex").value,
         age: age === "" ? null : Number(age),
         hr_max: hr === "" ? null : Number(hr),
@@ -376,7 +372,7 @@
     document.getElementById("delete-user").addEventListener("click", async () => {
       const id = document.getElementById("user-select").value;
       if (!id) return;
-      if (!confirm("确定删除这个本地账号吗？本机保存的密码和缓存会被删掉，不会删除佳明云端的数据。")) return;
+      if (!confirm("确定删除这个本地配置吗？本机保存的 Personal API Key 和缓存会被删掉，不会删除佳明云端的数据。")) return;
       const response = await fetch("/api/users/" + id, {method: "DELETE"});
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) { text("sync-msg", data.message || "没有删除。"); return; }
@@ -399,15 +395,9 @@
     document.getElementById("sync").addEventListener("click", async () => {
       const button = document.getElementById("sync");
       button.disabled = true;
-      text("sync-msg", "正在向佳明读取最近 90 天，请稍等。密码不会写进页面日志。");
+      text("sync-msg", "正在用 Personal API 读取最近 90 天，请稍等。密钥不会写进页面日志。");
       try {
         const data = await post("/api/sync", {});
-        if (data.needs_mfa) {
-          document.getElementById("mfa-box").hidden = false;
-          text("sync-msg", data.message || "需要验证码。");
-          button.disabled = false;
-          return;
-        }
         if (!data.ok) {
           text("sync-msg", data.message || "同步没有成功。");
           button.disabled = false;
@@ -420,21 +410,10 @@
       }
     });
 
-    document.getElementById("mfa-submit").addEventListener("click", async () => {
-      text("sync-msg", "正在提交验证码…");
-      const data = await post("/api/mfa", {code: document.getElementById("mfa-code").value.trim()});
-      if (data.needs_mfa || !data.ok) {
-        text("sync-msg", data.message || "验证码没有通过。");
-        return;
-      }
-      location.reload();
-    });
-
     renderWho(boot.status);
     fillUsers(boot.status);
     text("key-status", keyText(boot.status.deepseek));
     text("data-dir", boot.status.data_dir);
-    document.getElementById("mfa-box").hidden = !boot.status.needs_mfa;
     drawCharts();
     loadCoach();
   </script>
