@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
+  <title>佳明体能健康分析</title>
+  <style>
+    :root {
+      --paper: #ebe4d6;
+      --card: #f7f4ee;
+      --ink: #1c1915;
+      --muted: #5e584e;
+      --line: #d5cfc3;
+      --spruce: #145c52;
+      --rust: #9c3d2e;
+      --navy: #1d4e89;
+      --gold: #8a5a12;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+    }
+    header, main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    header { display: flex; justify-content: space-between; gap: 24px; padding: 28px 0 8px; align-items: end; }
+    .eyebrow { margin: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; color: var(--spruce); }
+    h1, h2 { font-family: Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC", serif; font-weight: 600; }
+    h1 { margin: 0; font-size: 34px; line-height: 1.15; }
+    h2 { margin: 0 0 12px; font-size: 22px; }
+    #who { text-align: right; min-width: 220px; }
+    #who p { margin: 0; }
+    #who .quiet { color: var(--muted); font-size: 14px; }
+    .split { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; margin: 16px 0; }
+    .card, form.card { background: var(--card); border: 1px solid var(--line); padding: 16px 18px 18px; }
+    form.card { margin: 0; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+    input, select, button { font: inherit; color: inherit; }
+    input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); background: #fff; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--ink); font-size: 14px; }
+    .check input { width: auto; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button { background: var(--spruce); color: #f7f4ee; border: 0; padding: 8px 14px; cursor: pointer; }
+    button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .msg { min-height: 1.2em; color: var(--rust); font-size: 14px; }
+    .quiet { color: var(--muted); font-size: 13px; }
+    .banner { padding: 12px 14px; border: 1px solid var(--line); margin: 0 0 12px; }
+    .banner-sample { background: #f3e6c8; border-color: #e0c98a; }
+    .banner-real { background: #e5f0ec; border-color: #b7d4cb; }
+    .window { color: var(--muted); margin-top: 0; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; margin-bottom: 16px; }
+    .metric { background: var(--card); border: 1px solid var(--line); padding: 10px 12px; }
+    .metric span, .metric small { display: block; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.2; margin: 2px 0; }
+    .flags, .suggestions, .notes { margin: 0; padding-left: 18px; }
+    .flags { list-style: none; padding: 0; }
+    .flag { border-left: 4px solid var(--navy); padding: 8px 10px; margin: 0 0 8px; background: #fbfaf6; }
+    .flag strong { display: block; }
+    .flag-alert { border-color: var(--rust); }
+    .flag-warning { border-color: var(--gold); }
+    .flag-info { border-color: var(--navy); }
+    #charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .chart-card { border: 1px solid var(--line); background: #f7f4ee; padding: 4px; }
+    .chart-card.wide { grid-column: 1 / -1; }
+    #coach-text { white-space: pre-wrap; margin-bottom: 0; }
+    details.methods summary { cursor: pointer; font-family: Palatino, "Palatino Linotype", "Songti SC", serif; font-size: 22px; }
+    details.methods dl { margin: 12px 0 0; }
+    details.methods dt { font-weight: 650; margin-top: 10px; }
+    details.methods dd { margin: 4px 0 0; color: var(--muted); }
+    footer { width: min(1080px, calc(100% - 32px)); margin: 8px auto 32px; color: var(--muted); font-size: 13px; }
+    code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 800px) {
+      header, .split, #charts { display: block; }
+      #who { text-align: left; margin-top: 12px; }
+      .chart-card { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">本地工具</p>
+      <h1>佳明体能健康分析</h1>
+    </div>
+    <div id="who"></div>
+  </header>
+  <main>
+    <div class="split">
+      <form id="account-form" class="card">
+        <h2>账号</h2>
+        <p class="quiet">用手机佳明 Connect 的同一个邮箱和密码。官方 Health API 不接受消费级账号密码，这里通过 Connect 登录，只读取你自己的数据。</p>
+        <label for="email">邮箱或手机号</label>
+        <input id="email" name="email" autocomplete="username" required>
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <label for="display-name">显示名（可选）</label>
+        <input id="display-name" name="display_name" maxlength="40">
+        <div class="row">
+          <div style="flex:1">
+            <label for="sex">性别（可选，用于 TRIMP）</label>
+            <select id="sex" name="sex">
+              <option value="unknown">未填</option>
+              <option value="male">男</option>
+              <option value="female">女</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label for="age">年龄（可选）</label>
+            <input id="age" name="age" inputmode="numeric">
+          </div>
+          <div style="flex:1">
+            <label for="hr-max">最大心率（可选）</label>
+            <input id="hr-max" name="hr_max" inputmode="numeric">
+          </div>
+        </div>
+        <label class="check"><input id="is-cn" type="checkbox">中国区账号（Garmin.cn）</label>
+        <div class="actions">
+          <button type="submit">保存账号并设为当前</button>
+        </div>
+        <p id="form-msg" class="msg" role="status"></p>
+      </form>
+      <div class="card">
+        <h2>当前与同步</h2>
+        <label for="user-select">已保存的账号</label>
+        <select id="user-select"></select>
+        <div class="actions">
+          <button type="button" id="switch-user" class="secondary">切换到所选账号</button>
+          <button type="button" id="delete-user" class="secondary">删除所选账号</button>
+        </div>
+        <label for="deepseek-key">DeepSeek API Key（可选）</label>
+        <input id="deepseek-key" type="password" autocomplete="off" placeholder="只保存在本机，不会回显">
+        <div class="actions">
+          <button type="button" id="save-key">保存密钥</button>
+          <button type="button" id="clear-key" class="secondary">清除密钥</button>
+        </div>
+        <p id="key-status" class="quiet"></p>
+        <div class="actions">
+          <button type="button" id="sync">从佳明同步最近 90 天</button>
+        </div>
+        <p id="sync-msg" class="msg" role="status"></p>
+        <div id="mfa-box" hidden>
+          <label for="mfa-code">佳明验证码</label>
+          <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code">
+          <div class="actions">
+            <button type="button" id="mfa-submit">提交验证码</button>
+          </div>
+        </div>
+        <p class="quiet">密码、令牌和密钥写在 <code id="data-dir"></code>，文件权限 0600。同步时密码只发给 Garmin。DeepSeek 只在查看已同步数据且保存了密钥时收到算好的指标。</p>
+      </div>
+    </div>
+    <div id="report">
+      @@REPORT_HTML@@
+    </div>
+  </main>
+  <footer>
+    这些分区是训练监控里的常用启发式算法，不是医疗诊断。图表脚本来自本机已安装的 plotly 包，打开页面不必再去 CDN。
+  </footer>
+  <script id="bootstrap" type="application/json">@@BOOTSTRAP_JSON@@</script>
+  <script src="/static/plotly.min.js"></script>
+  <script>
+    const boot = JSON.parse(document.getElementById("bootstrap").textContent);
+
+    function text(id, value) {
+      const node = document.getElementById(id);
+      if (node) node.textContent = value || "";
+    }
+
+    async function post(url, body, method) {
+      const response = await fetch(url, {
+        method: method || "POST",
+        headers: {"Content-Type": "application/json"},
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok && !data.message) data.message = "请求没有成功。";
+      return data;
+    }
+
+    function renderWho(status) {
+      const host = document.getElementById("who");
+      host.replaceChildren();
+      const line = document.createElement("p");
+      const sub = document.createElement("p");
+      sub.className = "quiet";
+      if (status.active_user) {
+        const user = status.active_user;
+        line.textContent = "当前账号：" + user.display_name + "（" + user.email + "）" + (user.is_cn ? " · 中国区" : "");
+      } else {
+        line.textContent = "当前账号：还没有添加";
+      }
+      sub.textContent = status.viewing === "garmin" ? "正在查看：已同步的佳明数据" : "正在查看：示例数据";
+      host.append(line, sub);
+    }
+
+    function fillUsers(status) {
+      const select = document.getElementById("user-select");
+      select.replaceChildren();
+      if (!status.users.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "还没有账号";
+        select.append(option);
+        return;
+      }
+      status.users.forEach((user) => {
+        const option = document.createElement("option");
+        option.value = user.id;
+        option.textContent = user.display_name + "（" + user.email + "）" + (user.is_cn ? " · 中国区" : "");
+        select.append(option);
+      });
+      if (status.active_user) select.value = status.active_user.id;
+    }
+
+    function keyText(source) {
+      if (source === "file") return "DeepSeek 密钥已写在本机 data 目录。页面不会回显它。";
+      if (source === "env") return "正在使用环境变量里的 DeepSeek 密钥。在页面保存后会改用本机文件。";
+      return "还没有 DeepSeek 密钥。不填也能看本地报告，只是没有模型建议。";
+    }
+
+    function hasPoint(values) {
+      return Array.isArray(values) && values.some((value) => typeof value === "number");
+    }
+
+    function mount(host, title, traces, extra, wide) {
+      const card = document.createElement("div");
+      card.className = "chart-card" + (wide ? " wide" : "");
+      const node = document.createElement("div");
+      card.append(node);
+      host.append(card);
+      const layout = Object.assign({
+        paper_bgcolor: "#f7f4ee",
+        plot_bgcolor: "#f7f4ee",
+        font: {family: "PingFang SC, Noto Sans SC, Microsoft YaHei, sans-serif", color: "#1c1915", size: 12},
+        margin: {t: 52, r: extra && extra.yaxis2 ? 56 : 20, b: 40, l: 52},
+        xaxis: {gridcolor: "#e4ddd0", zeroline: false},
+        yaxis: {gridcolor: "#e4ddd0", zerolinecolor: "#cfc6b4"},
+        legend: {orientation: "h", y: 1.16},
+        height: 320,
+      }, extra || {});
+      layout.title = {text: title, font: {size: 15}, x: 0};
+      try {
+        Plotly.newPlot(node, traces, layout, {responsive: true, displayModeBar: false});
+      } catch (err) {
+        node.textContent = "这张图没有画出来。";
+      }
+    }
+
+    function line(name, x, y, color, extra) {
+      return Object.assign({type: "scatter", mode: "lines", name: name, x: x, y: y, connectgaps: false, line: {color: color, width: 2}}, extra || {});
+    }
+
+    function hlines(values, yref) {
+      return values.map((value) => ({
+        type: "line", xref: "paper", x0: 0, x1: 1, yref: yref || "y", y0: value, y1: value,
+        line: {color: "#8a8175", width: 1, dash: "dot"},
+      }));
+    }
+
+    function drawCharts() {
+      const host = document.getElementById("charts");
+      if (!host) return;
+      host.replaceChildren();
+      if (typeof Plotly === "undefined") {
+        host.textContent = "图表库没有加载。上面的数字仍然有效。请确认已安装 plotly，并且本机能打开 /static/plotly.min.js。";
+        return;
+      }
+      const series = boot.series || {};
+      const dates = series.dates || [];
+      if (hasPoint(series.ctl) || hasPoint(series.tsb)) {
+        mount(host, "体能、疲劳与状态", [
+          line("CTL 体能", dates, series.ctl, "#145c52"),
+          line("ATL 疲劳", dates, series.atl, "#9c3d2e"),
+          line("TSB 状态", dates, series.tsb, "#1d4e89"),
+        ], {yaxis: {title: "与日负荷同一单位"}, shapes: hlines([-30, 0, 25])}, true);
+      }
+      if (hasPoint(series.load) || hasPoint(series.acwr)) {
+        mount(host, "每日负荷与 ACWR", [
+          {type: "bar", name: "每日负荷", x: dates, y: series.load, marker: {color: "#e2c7a4"}},
+          line("ACWR", dates, series.acwr, "#1d4e89", {yaxis: "y2"}),
+        ], {
+          yaxis: {title: "日负荷"},
+          yaxis2: {title: "ACWR", overlaying: "y", side: "right", showgrid: false},
+          shapes: hlines([0.8, 1.3, 1.5], "y2"),
+        }, true);
+      }
+      if (hasPoint(series.rhr)) {
+        mount(host, "静息心率", [line("静息心率", dates, series.rhr, "#9c3d2e")], {yaxis: {title: "bpm"}}, false);
+      }
+      if (hasPoint(series.hrv)) {
+        const traces = [line("夜间 HRV", dates, series.hrv, "#145c52")];
+        if (hasPoint(series.hrv_low)) traces.push(line("基线下沿", dates, series.hrv_low, "#8a8175", {line: {color: "#8a8175", width: 1, dash: "dot"}}));
+        if (hasPoint(series.hrv_high)) traces.push(line("基线上沿", dates, series.hrv_high, "#8a8175", {line: {color: "#8a8175", width: 1, dash: "dot"}}));
+        mount(host, "HRV 与个人基线", traces, {yaxis: {title: "佳明夜间值"}}, false);
+      }
+      if (hasPoint(series.sleep_hours)) {
+        mount(host, "睡眠时长", [line("睡眠", dates, series.sleep_hours, "#1d4e89")], {yaxis: {title: "小时"}, shapes: hlines([7])}, false);
+      }
+      if (hasPoint(series.body_battery)) {
+        mount(host, "Body Battery", [line("最近读数", dates, series.body_battery, "#145c52")], {yaxis: {title: "0–100"}, shapes: hlines([25])}, false);
+      }
+      if (hasPoint(series.stress)) {
+        mount(host, "压力", [line("压力", dates, series.stress, "#8a5a12")], {yaxis: {title: "佳明分数"}, shapes: hlines([51])}, false);
+      }
+      const weeks = series.weeks || [];
+      const sports = [];
+      weeks.forEach((week) => Object.keys(week.sports || {}).forEach((name) => { if (!sports.includes(name)) sports.push(name); }));
+      if (sports.length) {
+        const palette = ["#145c52", "#1d4e89", "#9c3d2e", "#8a5a12", "#5c4d7a", "#3d6b4f"];
+        mount(host, "每周训练时长", sports.map((name, index) => ({
+          type: "bar", name: name, marker: {color: palette[index % palette.length]},
+          x: weeks.map((week) => week.label),
+          y: weeks.map((week) => (week.sports && week.sports[name]) || 0),
+        })), {barmode: "stack", yaxis: {title: "小时"}}, true);
+      }
+      if (boot.intensity && typeof boot.intensity.low === "number") {
+        const item = boot.intensity;
+        mount(host, "强度分布（" + (item.method_label || "") + "）", [{
+          type: "bar", x: ["低", "中", "高"],
+          y: [item.low * 100, item.mid * 100, item.high * 100],
+          marker: {color: ["#145c52", "#8a5a12", "#9c3d2e"]},
+          name: "占比",
+        }], {yaxis: {title: "%", range: [0, 100]}, showlegend: false}, false);
+      }
+      if (!host.childElementCount) {
+        host.textContent = "这段数据还不够画图。";
+      }
+    }
+
+    async function loadCoach() {
+      if (!boot.fetch_coach) return;
+      const node = document.getElementById("coach-text");
+      try {
+        const response = await fetch("/api/coach");
+        const data = await response.json();
+        node.textContent = data.available && data.text ? data.text : (data.reason || "模型建议不可用。本地计算的报告仍然有效。");
+      } catch (err) {
+        node.textContent = "模型建议不可用（请求失败）。本地计算的报告仍然有效。";
+      }
+    }
+
+    document.getElementById("account-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      text("form-msg", "正在保存…");
+      const age = document.getElementById("age").value.trim();
+      const hr = document.getElementById("hr-max").value.trim();
+      const data = await post("/api/users", {
+        email: document.getElementById("email").value.trim(),
+        password: document.getElementById("password").value,
+        display_name: document.getElementById("display-name").value.trim(),
+        is_cn: document.getElementById("is-cn").checked,
+        sex: document.getElementById("sex").value,
+        age: age === "" ? null : Number(age),
+        hr_max: hr === "" ? null : Number(hr),
+      });
+      if (!data.ok) {
+        text("form-msg", data.message || "没有保存。");
+        return;
+      }
+      location.reload();
+    });
+
+    document.getElementById("switch-user").addEventListener("click", async () => {
+      const id = document.getElementById("user-select").value;
+      if (!id) return;
+      const data = await post("/api/users/select", {id: id});
+      if (!data.ok) { text("sync-msg", data.message || "没有切换。"); return; }
+      location.reload();
+    });
+
+    document.getElementById("delete-user").addEventListener("click", async () => {
+      const id = document.getElementById("user-select").value;
+      if (!id) return;
+      if (!confirm("确定删除这个本地账号吗？本机保存的密码和缓存会被删掉，不会删除佳明云端的数据。")) return;
+      const response = await fetch("/api/users/" + id, {method: "DELETE"});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) { text("sync-msg", data.message || "没有删除。"); return; }
+      location.reload();
+    });
+
+    document.getElementById("save-key").addEventListener("click", async () => {
+      const data = await post("/api/settings/deepseek", {api_key: document.getElementById("deepseek-key").value.trim()});
+      if (!data.ok) { text("sync-msg", data.message || "没有保存密钥。"); return; }
+      document.getElementById("deepseek-key").value = "";
+      location.reload();
+    });
+
+    document.getElementById("clear-key").addEventListener("click", async () => {
+      const data = await post("/api/settings/deepseek", {api_key: ""});
+      if (!data.ok) { text("sync-msg", data.message || "没有清除。"); return; }
+      location.reload();
+    });
+
+    document.getElementById("sync").addEventListener("click", async () => {
+      const button = document.getElementById("sync");
+      button.disabled = true;
+      text("sync-msg", "正在向佳明读取最近 90 天，请稍等。密码不会写进页面日志。");
+      try {
+        const data = await post("/api/sync", {});
+        if (data.needs_mfa) {
+          document.getElementById("mfa-box").hidden = false;
+          text("sync-msg", data.message || "需要验证码。");
+          button.disabled = false;
+          return;
+        }
+        if (!data.ok) {
+          text("sync-msg", data.message || "同步没有成功。");
+          button.disabled = false;
+          return;
+        }
+        location.reload();
+      } catch (err) {
+        text("sync-msg", "同步请求失败。可以再试一次。");
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById("mfa-submit").addEventListener("click", async () => {
+      text("sync-msg", "正在提交验证码…");
+      const data = await post("/api/mfa", {code: document.getElementById("mfa-code").value.trim()});
+      if (data.needs_mfa || !data.ok) {
+        text("sync-msg", data.message || "验证码没有通过。");
+        return;
+      }
+      location.reload();
+    });
+
+    renderWho(boot.status);
+    fillUsers(boot.status);
+    text("key-status", keyText(boot.status.deepseek));
+    text("data-dir", boot.status.data_dir);
+    document.getElementById("mfa-box").hidden = !boot.status.needs_mfa;
+    drawCharts();
+    loadCoach();
+  </script>
+</body>
+</html>
