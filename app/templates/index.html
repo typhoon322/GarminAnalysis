@@ -255,15 +255,18 @@
       font-size: 11px;
       margin-bottom: 4px;
     }
-    .chat-compose textarea {
+    .chat-compose textarea,
+    #chat-profile-box textarea,
+    #athlete-settings textarea {
       width: 100%;
-      min-height: 88px;
+      min-height: 64px;
       resize: vertical;
       padding: 10px 12px;
       border: 1px solid var(--line);
       background: #fff;
       font: inherit;
     }
+    .chat-compose textarea { min-height: 88px; }
     .chat-hints {
       display: flex;
       flex-wrap: wrap;
@@ -333,6 +336,26 @@
           <button type="button" id="chat-clear" class="secondary">清空对话</button>
         </div>
         <div id="chat-banner" class="banner banner-sample" hidden></div>
+        <details class="block methods" id="chat-profile-box">
+          <summary>个人描述（本机）</summary>
+          <p class="quiet">只保存在本机；发给教练时只会带截断后的短文本，不会带密钥。</p>
+          <label for="chat-goals">训练目标</label>
+          <textarea id="chat-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
+          <label for="chat-sports">偏好运动</label>
+          <input id="chat-sports" maxlength="200" placeholder="跑步、骑行…">
+          <label for="chat-availability">可训练时间</label>
+          <textarea id="chat-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
+          <label for="chat-injuries">伤病与限制</label>
+          <textarea id="chat-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
+          <label for="chat-feelings">主观感受 / RPE 笔记</label>
+          <textarea id="chat-feelings" maxlength="600" rows="2" placeholder="本周腿沉、睡眠一般…"></textarea>
+          <label for="chat-about">对我的描述</label>
+          <textarea id="chat-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
+          <div class="actions">
+            <button type="button" id="chat-save-profile">保存个人描述</button>
+          </div>
+          <p id="chat-profile-msg" class="msg" role="status"></p>
+        </details>
         <div id="chat-log" aria-live="polite"></div>
         <div class="chat-hints" id="chat-hints">
           <button type="button" data-prompt="根据我现在的状态，给我一个今天的训练计划。">今日计划</button>
@@ -389,6 +412,27 @@
         </div>
         <p id="form-msg" class="msg" role="status"></p>
       </form>
+
+      <div class="settings-block" id="athlete-settings">
+        <h2>个人描述</h2>
+        <p class="quiet">目标、偏好、可用时间、伤病限制与主观感受。只写在本机 <code>data/cache/&lt;配置&gt;/athlete_profile.json</code>；问教练时注入截断摘要。</p>
+        <label for="set-goals">训练目标</label>
+        <textarea id="set-goals" maxlength="400" rows="2" placeholder="例如：半马破 1:45"></textarea>
+        <label for="set-sports">偏好运动</label>
+        <input id="set-sports" maxlength="200" placeholder="跑步、骑行…">
+        <label for="set-availability">可训练时间</label>
+        <textarea id="set-availability" maxlength="300" rows="2" placeholder="工作日晚上、周末上午…"></textarea>
+        <label for="set-injuries">伤病与限制</label>
+        <textarea id="set-injuries" maxlength="400" rows="2" placeholder="膝部不适时避免下坡…"></textarea>
+        <label for="set-feelings">主观感受 / RPE 笔记</label>
+        <textarea id="set-feelings" maxlength="600" rows="3" placeholder="本周腿沉、睡眠一般…"></textarea>
+        <label for="set-about">对我的描述</label>
+        <textarea id="set-about" maxlength="800" rows="3" placeholder="自由描述训练背景与偏好"></textarea>
+        <div class="actions">
+          <button type="button" id="save-athlete-profile">保存个人描述</button>
+        </div>
+        <p id="athlete-msg" class="msg" role="status"></p>
+      </div>
 
       <div class="settings-block">
         <h2>账号与同步</h2>
@@ -631,6 +675,59 @@
       host.scrollTop = host.scrollHeight;
     }
 
+    function fillAthleteProfile(profile) {
+      const data = profile || {};
+      const map = [
+        ["set-goals", "chat-goals", "goals"],
+        ["set-sports", "chat-sports", "preferred_sports"],
+        ["set-availability", "chat-availability", "availability"],
+        ["set-injuries", "chat-injuries", "injuries_limitations"],
+        ["set-feelings", "chat-feelings", "feelings_notes"],
+        ["set-about", "chat-about", "about_me"],
+      ];
+      map.forEach(([setId, chatId, key]) => {
+        const setNode = document.getElementById(setId);
+        const chatNode = document.getElementById(chatId);
+        const value = data[key] || "";
+        if (setNode && document.activeElement !== setNode) setNode.value = value;
+        if (chatNode && document.activeElement !== chatNode) chatNode.value = value;
+      });
+      boot.athlete_profile = data;
+    }
+
+    function readAthleteProfile(prefix) {
+      if (prefix === "chat") {
+        return {
+          goals: document.getElementById("chat-goals").value,
+          preferred_sports: document.getElementById("chat-sports").value,
+          availability: document.getElementById("chat-availability").value,
+          injuries_limitations: document.getElementById("chat-injuries").value,
+          feelings_notes: document.getElementById("chat-feelings").value,
+          about_me: document.getElementById("chat-about").value,
+        };
+      }
+      return {
+        goals: document.getElementById("set-goals").value,
+        preferred_sports: document.getElementById("set-sports").value,
+        availability: document.getElementById("set-availability").value,
+        injuries_limitations: document.getElementById("set-injuries").value,
+        feelings_notes: document.getElementById("set-feelings").value,
+        about_me: document.getElementById("set-about").value,
+      };
+    }
+
+    async function saveAthleteProfile(prefix) {
+      const msgId = prefix === "chat" ? "chat-profile-msg" : "athlete-msg";
+      text(msgId, "正在保存个人描述…");
+      const data = await post("/api/athlete-profile", readAthleteProfile(prefix));
+      if (!data.ok) {
+        text(msgId, data.message || "没有保存。");
+        return;
+      }
+      fillAthleteProfile(data.athlete_profile || {});
+      text(msgId, data.message || "已保存。");
+    }
+
     function applyChatState(payload) {
       boot.chat = payload || boot.chat || {};
       const ready = !!(boot.chat && boot.chat.ready);
@@ -640,7 +737,7 @@
       const input = document.getElementById("chat-input");
       const coach = (boot.chat && boot.chat.coach) || {};
       const policy = (boot.chat && boot.chat.coach_policy) || {};
-      let line = "基于本机压缩后的负荷与生理摘要提问（不含原始活动列表）。";
+      let line = "基于本机压缩后的负荷、生理摘要与个人描述提问（不含原始活动列表）。";
       if (coach.min_interval_seconds || policy.min_interval_seconds) {
         line += " 间隔约 " + (coach.min_interval_seconds || policy.min_interval_seconds || 20) + " 秒";
         line += " · 今日 " + (coach.chats_today || 0) + "/" + (coach.daily_cap || policy.daily_cap || 40) + " 次。";
@@ -659,6 +756,7 @@
       const blocked = !ready || !!(coach.rate_limited);
       if (sendBtn) sendBtn.disabled = blocked;
       if (input) input.disabled = !ready;
+      if (boot.chat && boot.chat.athlete_profile) fillAthleteProfile(boot.chat.athlete_profile);
       renderChatMessages((boot.chat && boot.chat.messages) || []);
     }
 
@@ -1020,6 +1118,9 @@
     document.getElementById("sync-home").addEventListener("click", () => runSync("sync-home-msg"));
     document.getElementById("sync").addEventListener("click", () => runSync("sync-msg"));
 
+    document.getElementById("save-athlete-profile").addEventListener("click", () => saveAthleteProfile("set"));
+    document.getElementById("chat-save-profile").addEventListener("click", () => saveAthleteProfile("chat"));
+
     document.getElementById("save-sync-policy").addEventListener("click", async () => {
       text("sync-msg", "正在保存同步限制…");
       const data = await post("/api/settings/sync", {
@@ -1043,6 +1144,7 @@
     text("key-status", keyText(boot.status.deepseek));
     text("data-dir", boot.status.data_dir);
     applySyncStatus(boot.status || {});
+    fillAthleteProfile((boot.status && boot.status.athlete_profile) || {});
     renderRangeBar(currentReport || {available_ranges: [], range: currentRange});
     drawCharts();
     loadCoach();

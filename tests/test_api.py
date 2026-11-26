@@ -139,6 +139,10 @@ def test_sync_policy_endpoint_and_status(client):
 
 
 def test_sync_rate_limit_returns_chinese_error_without_calling_garmin(client, monkeypatch):
+    from datetime import timedelta
+
+    from app.clock import now_sh
+
     calls = {"n": 0}
 
     def boom(*_args, **_kwargs):
@@ -150,7 +154,8 @@ def test_sync_rate_limit_returns_chinese_error_without_calling_garmin(client, mo
         json={"display_name": "限流用户", "personal_api_key": "rate-key"},
     )
     user = storage.active_user()
-    storage.record_sync_attempt(user["id"], at="2026-11-26T21:50:00+08:00")
+    recent = (now_sh() - timedelta(minutes=5)).isoformat(timespec="seconds")
+    storage.record_sync_attempt(user["id"], at=recent)
     client.post("/api/settings/sync", json={"min_interval_minutes": 30, "daily_cap": 12})
     monkeypatch.setattr("app.garmin_sync.obtain_access_token", boom)
     monkeypatch.delenv("GARMIN_FITNESS_DISABLE_NETWORK", raising=False)

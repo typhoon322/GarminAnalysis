@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 
 from app import garmin_sync, storage
 from app.analysis import analyze, normalize_range_key
+from app.athlete_profile import apply_athlete_profile_update, public_athlete_profile
 from app.chat_context import build_chat_context
 from app.clock import iso_sh
 from app.coach import (
@@ -80,6 +81,9 @@ def _status(view: dict | None = None) -> dict:
         "deepseek_ready": storage.deepseek_source() != "missing",
         "coach": storage.coach_state_for_user(user["id"] if user else None),
         "coach_policy": storage.get_coach_policy(),
+        "athlete_profile": (
+            public_athlete_profile(storage.load_athlete_profile(user["id"])) if user else public_athlete_profile(None)
+        ),
     }
 
 
@@ -272,8 +276,10 @@ def sync():
 
 def _public_chat(user_id: str | None) -> dict:
     messages = []
+    profile = public_athlete_profile(None)
     if user_id:
         messages = storage.load_chat(user_id).get("messages") or []
+        profile = public_athlete_profile(storage.load_athlete_profile(user_id))
     coach = storage.coach_state_for_user(user_id)
     deepseek = storage.deepseek_source()
     view = _view()
@@ -295,6 +301,7 @@ def _public_chat(user_id: str | None) -> dict:
         "deepseek": deepseek,
         "coach": coach,
         "coach_policy": storage.get_coach_policy(),
+        "athlete_profile": profile,
     }
 
 
@@ -343,7 +350,8 @@ def chat_send(body: dict):
             "coach": coach_state,
         }
 
-    context = build_chat_context(view["bundle"])
+    athlete = storage.load_athlete_profile(user["id"])
+    context = build_chat_context(view["bundle"], athlete_profile=athlete)
     history = storage.load_chat(user["id"]).get("messages") or []
     # Count the attempt before the network call so retries cannot spam.
     storage.record_coach_attempt(user["id"])
@@ -367,6 +375,31 @@ def chat_send(body: dict):
     storage.append_chat_turn(user["id"], user_text=message, assistant_text=reply)
     public = _public_chat(user["id"])
     return {**public, "ok": True, "reply": reply, "message": "已回复"}
+
+
+@app.get("/api/athlete-profile")
+def athlete_profile_get():
+    user = storage.active_user()
+    if not user:
+        return {"ok": True, "athlete_profile": public_athlete_profile(None), "editable": False}
+    return {
+        "ok": True,
+        "athlete_profile": public_athlete_profile(storage.load_athlete_profile(user["id"])),
+        "editable": True,
+    }
+
+
+@app.post("/api/athlete-profile")
+def athlete_profile_save(body: dict):
+    if not isinstance(body, dict):
+        raise storage.StorageError("请求格式不对。")
+    user = storage.active_user()
+    if not user:
+        raise storage.StorageError("还没有当前配置。先在设置里保存配置。")
+    current = storage.load_athlete_profile(user["id"])
+    updated = apply_athlete_profile_update(current, body)
+    public = storage.save_athlete_profile(user["id"], updated)
+    return {"ok": True, "athlete_profile": public, "message": "个人描述已保存在本机。"}
 
 
 @app.get("/static/plotly.min.js")

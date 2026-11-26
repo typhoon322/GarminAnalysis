@@ -13,8 +13,8 @@ from app.clock import iso_sh, today_sh
 
 RECENT_SESSIONS_CAP = 5
 CONTEXT_DOC = (
-    "本上下文已压缩：只含负荷/生理聚合、近7天与近28天量、警报、以及最多 "
-    f"{RECENT_SESSIONS_CAP} 条最近课次的标题与负荷。"
+    "本上下文已压缩：只含负荷/生理聚合、近7天与近28天量、警报、最多 "
+    f"{RECENT_SESSIONS_CAP} 条最近课次的标题与负荷，以及可选的本机个人描述短文本。"
     "不含原始活动列表、不含逐日全序列、不含账号/密码/API Key。"
 )
 
@@ -85,8 +85,15 @@ def _recent_sessions(bundle: dict, *, cap: int = RECENT_SESSIONS_CAP) -> list[di
     return out
 
 
-def build_chat_context(bundle: dict, *, recent_cap: int = RECENT_SESSIONS_CAP) -> dict[str, Any]:
+def build_chat_context(
+    bundle: dict,
+    *,
+    recent_cap: int = RECENT_SESSIONS_CAP,
+    athlete_profile: dict | None = None,
+) -> dict[str, Any]:
     """Return the structured payload sent to the model (no secrets)."""
+    from app.athlete_profile import coach_profile_summary
+
     report28 = analyze(bundle, range_key="30")
     report7 = analyze(bundle, range_key="7")
     summary28 = report28.get("summary") if isinstance(report28.get("summary"), dict) else {}
@@ -178,6 +185,9 @@ def build_chat_context(bundle: dict, *, recent_cap: int = RECENT_SESSIONS_CAP) -
             line for line in (report28.get("suggestions") or [])[:6] if isinstance(line, str) and "@" not in line
         ],
     }
+    personal = coach_profile_summary(athlete_profile)
+    if personal:
+        context["个人描述"] = personal
     return context
 
 
