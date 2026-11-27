@@ -10,3 +10,12 @@ __pycache__/
 # Keep Android Kotlin package com.garminanalysis.app.data
 !android/app/src/main/java/com/garminanalysis/app/data/
 !android/app/src/main/java/com/garminanalysis/app/data/**
+android/.gradle/
+android/.gradle-home/
+android/**/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+android/.cxx/
+*.apk

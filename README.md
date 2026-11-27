@@ -119,3 +119,45 @@ python3 -m venv .venv
 ```
 
 测试使用夹具和示例数据，并设置 `GARMIN_FITNESS_DISABLE_NETWORK=1`，不会连接佳明，也不会请求 DeepSeek。覆盖 ACWR、CTL/ATL/TSB、恢复警报，以及带 mock 令牌与 JSON fixture 的 Personal API 同步路径。
+
+## Android 应用（Jetpack Compose）
+
+源码在 `android/`。功能与桌面版对齐：底部三个页签「数据 / 教练 / 设置」；本机保存 Personal API Key 与 DeepSeek Key；国际区 / 中国区端点；同步频率限制与增量缓存；时间范围今天 / 7 / 30 / 90；CTL/ATL/TSB/ACWR 等分析指标与图表；DeepSeek 教练（压缩摘要 + 个人画像时间线）。
+
+### 环境
+
+- JDK 17+
+- Android SDK（`compileSdk` / `targetSdk` 34，`minSdk` 26）
+- 在 `android/local.properties` 写明 SDK 路径，例如：
+
+```properties
+sdk.dir=/path/to/Android/sdk
+```
+
+### 编译 Debug APK
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+APK 输出：
+
+`android/app/build/outputs/apk/debug/app-debug.apk`
+
+### 安装到手机
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+没有连接设备时，`adb devices` 为空，可先把 APK 拷到手机手动安装。
+
+### 第一次使用（App）
+
+1. 打开「设置」，填写配置名称，粘贴 Garmin Personal API Key，选择国际区或中国区。
+2. 可选填写 DeepSeek API Key（教练对话需要）。
+3. 回到「数据」，点「从佳明同步」。
+4. 在「教练」里基于本机摘要提问。
+
+密钥只保存在 App 私有目录，不会写进仓库。
